@@ -1,7 +1,0 @@
-{
-  "/page": "app/page.js",
-  "/api/upload/route": "app/api/upload/route.js",
-  "/builder/page": "app/builder/page.js",
-  "/api/collection/route": "app/api/collection/route.js",
-  "/api/auto-build/route": "app/api/auto-build/route.js"
-}

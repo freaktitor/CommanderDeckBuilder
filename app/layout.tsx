@@ -9,6 +9,8 @@ export const metadata: Metadata = {
   description: "Build Commander decks from your Manabox collection",
 };
 
+import AuthProvider from "@/components/SessionProvider";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -16,7 +18,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className={inter.className}>{children}</body>
+      <body className={inter.className}>
+        <AuthProvider>{children}</AuthProvider>
+      </body>
     </html>
   );
 }
