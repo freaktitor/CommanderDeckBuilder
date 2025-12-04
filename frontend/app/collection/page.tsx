@@ -8,6 +8,7 @@ import { ColorPicker } from '@/components/ColorPicker';
 import { ArrowLeft, Search, Filter, Package } from 'lucide-react';
 import { API_BASE_URL } from '@/lib/api';
 import { NavigationPill } from '@/components/NavigationPill';
+import { AdvancedFilters } from '@/components/AdvancedFilters';
 
 export default function CollectionPage() {
     const router = useRouter();
@@ -15,6 +16,8 @@ export default function CollectionPage() {
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedColors, setSelectedColors] = useState<string[]>([]);
     const [selectedTypes, setSelectedTypes] = useState<string[]>([]);
+    const [selectedEffects, setSelectedEffects] = useState<string[]>([]);
+    const [selectedSynergies, setSelectedSynergies] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(true);
 
     // Load collection on mount
@@ -89,8 +92,64 @@ export default function CollectionPage() {
             });
         }
 
+        // Effects filter (keywords)
+        if (selectedEffects.length > 0) {
+            filtered = filtered.filter(c => {
+                const oracleText = c.details?.oracle_text?.toLowerCase() || '';
+                const keywords = c.details?.keywords || [];
+
+                return selectedEffects.some(effect => {
+                    const effectLower = effect.toLowerCase();
+                    // Check both keywords array and oracle text
+                    return keywords.some(k => k.toLowerCase() === effectLower) ||
+                        oracleText.includes(effectLower);
+                });
+            });
+        }
+
+        // Synergies filter
+        if (selectedSynergies.length > 0) {
+            filtered = filtered.filter(c => {
+                const oracleText = c.details?.oracle_text?.toLowerCase() || '';
+                const typeLine = c.details?.type_line?.toLowerCase() || '';
+
+                return selectedSynergies.some(synergy => {
+                    const synergyLower = synergy.toLowerCase();
+
+                    // Special handling for specific synergies
+                    if (synergyLower === 'artifact') {
+                        return typeLine.includes('artifact') || oracleText.includes('artifact');
+                    }
+                    if (synergyLower === 'enchantment') {
+                        return typeLine.includes('enchantment') || oracleText.includes('enchantment');
+                    }
+                    if (synergyLower === 'token') {
+                        return oracleText.includes('token');
+                    }
+                    if (synergyLower === 'graveyard') {
+                        return oracleText.includes('graveyard') || oracleText.includes('from your graveyard');
+                    }
+                    if (synergyLower === 'draw') {
+                        return oracleText.includes('draw a card') || oracleText.includes('draw cards');
+                    }
+                    if (synergyLower === 'ramp') {
+                        return oracleText.includes('search your library for a') && oracleText.includes('land');
+                    }
+                    if (synergyLower === 'removal') {
+                        return oracleText.includes('destroy') || oracleText.includes('exile');
+                    }
+                    if (synergyLower === 'counter') {
+                        return oracleText.includes('counter target');
+                    }
+
+                    // Default: check if synergy appears in oracle text
+                    return oracleText.includes(synergyLower);
+                });
+            });
+        }
+
         return filtered;
-    }, [collection, searchQuery, selectedColors, selectedTypes]);
+    }, [collection, searchQuery, selectedColors, selectedTypes, selectedEffects, selectedSynergies]);
 
     // Group cards by name and count quantities
     const uniqueCards = useMemo(() => {
@@ -195,17 +254,29 @@ export default function CollectionPage() {
                             ))}
                         </div>
 
+                        {/* Advanced Filters */}
+                        <div className="w-full">
+                            <AdvancedFilters
+                                selectedEffects={selectedEffects}
+                                selectedSynergies={selectedSynergies}
+                                onEffectsChange={setSelectedEffects}
+                                onSynergiesChange={setSelectedSynergies}
+                            />
+                        </div>
+
                         {/* Clear Filters */}
-                        {(searchQuery || selectedColors.length > 0 || selectedTypes.length > 0) && (
+                        {(searchQuery || selectedColors.length > 0 || selectedTypes.length > 0 || selectedEffects.length > 0 || selectedSynergies.length > 0) && (
                             <button
                                 onClick={() => {
                                     setSearchQuery('');
                                     setSelectedColors([]);
                                     setSelectedTypes([]);
+                                    setSelectedEffects([]);
+                                    setSelectedSynergies([]);
                                 }}
                                 className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
                             >
-                                Clear filters
+                                Clear all filters
                             </button>
                         )}
                     </div>
