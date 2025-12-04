@@ -50,7 +50,7 @@ export default function Home() {
       const data = await response.json();
 
       if (data.success) {
-        router.push('/builder');
+        router.push('/collection');
       } else {
         throw new Error('Upload failed');
       }
