@@ -34,6 +34,7 @@ export interface ScryfallCard {
     set_name: string;
     set: string;
     collector_number: string;
+    keywords?: string[];
 }
 
 export interface CollectionCard {
