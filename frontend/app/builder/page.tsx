@@ -9,7 +9,7 @@ import { CardGrid } from '@/components/CardGrid';
 import { DeckSidebar } from '@/components/DeckSidebar';
 import { GoldfishModal } from '@/components/GoldfishModal';
 import { ArrowLeft, Filter, Search, Sparkles, Dices, Hand, Package } from 'lucide-react';
-import { NavigationPill } from '@/components/NavigationPill';
+import { TopBar } from '@/components/TopBar';
 
 import { API_BASE_URL } from '@/lib/api';
 
@@ -67,7 +67,7 @@ export default function BuilderPage() {
 
         // 2. Filter by Mode (Commander vs Library)
         if (activeTab === 'commander') {
-            return filtered.filter(c => {
+            const potentialCommanders = filtered.filter(c => {
                 const type = c.details?.type_line || '';
                 const isLegendaryCreature = type.includes('Legendary Creature');
                 // Simple Planeswalker commander check (can be improved)
@@ -84,6 +84,16 @@ export default function BuilderPage() {
                 }
                 return true;
             });
+
+            // Deduplicate by name
+            const uniqueCommanders = new Map();
+            potentialCommanders.forEach(c => {
+                if (!uniqueCommanders.has(c.name)) {
+                    uniqueCommanders.set(c.name, c);
+                }
+            });
+
+            return Array.from(uniqueCommanders.values());
         } else {
             // Library Mode
             if (!deck.commander) return []; // Need commander first
@@ -492,25 +502,17 @@ export default function BuilderPage() {
 
     return (
         <div className={`min-h-screen text-slate-200 flex transition-colors duration-1000 ${getThemeClass()}`}>
+            {/* Fixed Top Bar */}
+            <TopBar
+                title="Deck Builder"
+                subtitle={deck.commander ? `Building ${deck.commander.name}` : 'Choose your commander'}
+            />
+
             {/* Main Content */}
-            <div className="flex-1 mr-80 flex flex-col h-screen overflow-hidden">
-                {/* Header */}
-                <header className="bg-slate-900/50 backdrop-blur border-b border-slate-800 p-4 z-10">
+            <div className="flex-1 mr-80 flex flex-col h-screen overflow-hidden pt-20">
+                {/* Filters Bar */}
+                <div className="bg-slate-900/50 backdrop-blur border-b border-slate-800 p-4 z-10">
                     <div className="max-w-full mx-auto px-6">
-                        {/* Row 1: Title + Navigation Pills */}
-                        <div className="flex items-center justify-between gap-4 mb-4 min-h-[44px]">
-                            <div className="flex items-center gap-4 flex-shrink-0">
-                                <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-violet-400 to-indigo-400">
-                                    Deck Builder
-                                </h1>
-                            </div>
-
-                            <div className="flex-shrink-0 mr-80">
-                                <NavigationPill />
-                            </div>
-                        </div>
-
-                        {/* Row 2: Search + Filters + User Profile */}
                         <div className="flex items-center justify-between gap-4">
                             <div className="flex items-center gap-4 flex-1">
                                 {/* Search */}
@@ -571,7 +573,7 @@ export default function BuilderPage() {
                             </div>
                         </div>
                     </div>
-                </header>
+                </div>
 
                 {/* Tabs */}
                 <div className="flex border-b border-slate-800 bg-slate-900/30">

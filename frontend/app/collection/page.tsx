@@ -5,9 +5,9 @@ import { useRouter } from 'next/navigation';
 import { CollectionCard } from '@/lib/types';
 import { CardGrid } from '@/components/CardGrid';
 import { ColorPicker } from '@/components/ColorPicker';
-import { ArrowLeft, Search, Filter, Package } from 'lucide-react';
+import { Search, Filter, Package } from 'lucide-react';
 import { API_BASE_URL } from '@/lib/api';
-import { NavigationPill } from '@/components/NavigationPill';
+import { TopBar } from '@/components/TopBar';
 import { AdvancedFilters } from '@/components/AdvancedFilters';
 import { CardDetailModal } from '@/components/CardDetailModal';
 
@@ -192,148 +192,133 @@ export default function CollectionPage() {
 
     return (
         <div className="min-h-screen bg-slate-950 text-slate-200">
-            {/* Header */}
-            <header className="bg-slate-900/50 backdrop-blur border-b border-slate-800 p-4 sticky top-0 z-10">
-                <div className="max-w-full mx-auto px-6">
-                    <div className="flex items-center justify-between gap-4 mb-4 min-h-[44px]">
-                        <div className="flex items-center gap-4 flex-shrink-0">
-                            <button
-                                onClick={() => router.push('/')}
-                                className="p-2 hover:bg-slate-800 rounded-lg transition-colors"
-                            >
-                                <ArrowLeft className="w-5 h-5" />
-                            </button>
-                            <div>
-                                <h1 className="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-violet-400 to-indigo-400">
-                                    My Collection
-                                </h1>
-                                <p className="text-sm text-slate-400">
-                                    {totalCards} cards • {totalUnique} unique
-                                </p>
+            {/* Fixed Top Bar */}
+            <TopBar
+                title="My Collection"
+                subtitle={`${totalCards} cards • ${totalUnique} unique`}
+            />
+
+            {/* Main Content with padding for fixed header */}
+            <div className="pt-24">
+                {/* Filters Bar */}
+                <div className="bg-slate-900/50 backdrop-blur border-b border-slate-800 p-4 sticky top-20 z-10">
+                    <div className="max-w-full mx-auto px-6">
+                        <div className="flex flex-wrap items-center gap-4">
+                            {/* Search */}
+                            <div className="relative flex-1 min-w-[200px]">
+                                <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                                <input
+                                    type="text"
+                                    placeholder="Search cards..."
+                                    value={searchQuery}
+                                    onChange={(e) => setSearchQuery(e.target.value)}
+                                    className="bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-sm focus:outline-none focus:border-violet-500 w-full transition-colors"
+                                />
+                            </div>
+
+                            {/* Color Filter */}
+                            <div className="flex items-center gap-2">
+                                <Filter className="w-4 h-4 text-slate-500" />
+                                <ColorPicker
+                                    selectedColors={selectedColors}
+                                    onChange={setSelectedColors}
+                                />
+                            </div>
+
+                            {/* Type Filter */}
+                            <div className="flex items-center gap-2 flex-wrap">
+                                {cardTypes.map(type => (
+                                    <button
+                                        key={type}
+                                        onClick={() => {
+                                            setSelectedTypes(prev =>
+                                                prev.includes(type)
+                                                    ? prev.filter(t => t !== type)
+                                                    : [...prev, type]
+                                            );
+                                        }}
+                                        className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${selectedTypes.includes(type)
+                                            ? 'bg-violet-500 text-white'
+                                            : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                                            }`}
+                                    >
+                                        {type}
+                                    </button>
+                                ))}
+                            </div>
+
+                            {/* Advanced Filters */}
+                            <div className="w-full">
+                                <AdvancedFilters
+                                    selectedEffects={selectedEffects}
+                                    selectedSynergies={selectedSynergies}
+                                    onEffectsChange={setSelectedEffects}
+                                    onSynergiesChange={setSelectedSynergies}
+                                />
+                            </div>
+
+                            {/* Clear Filters */}
+                            {(searchQuery || selectedColors.length > 0 || selectedTypes.length > 0 || selectedEffects.length > 0 || selectedSynergies.length > 0) && (
+                                <button
+                                    onClick={() => {
+                                        setSearchQuery('');
+                                        setSelectedColors([]);
+                                        setSelectedTypes([]);
+                                        setSelectedEffects([]);
+                                        setSelectedSynergies([]);
+                                    }}
+                                    className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                                >
+                                    Clear all filters
+                                </button>
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* Content */}
+                <main className="p-6">
+                    <div className="max-w-full mx-auto">
+                        <div className="mb-6 flex items-center justify-between">
+                            <div className="flex items-center gap-2 text-slate-400">
+                                <Package className="w-5 h-5" />
+                                <span className="text-sm">
+                                    Showing {uniqueCards.length} unique cards
+                                </span>
                             </div>
                         </div>
 
-                        <div className="flex-shrink-0 mr-80">
-                            <NavigationPill />
-                        </div>
-                    </div>
-
-                    {/* Filters */}
-                    <div className="flex flex-wrap items-center gap-4">
-                        {/* Search */}
-                        <div className="relative flex-1 min-w-[200px]">
-                            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-                            <input
-                                type="text"
-                                placeholder="Search cards..."
-                                value={searchQuery}
-                                onChange={(e) => setSearchQuery(e.target.value)}
-                                className="bg-slate-900 border border-slate-700 rounded-lg pl-10 pr-4 py-2 text-sm focus:outline-none focus:border-violet-500 w-full transition-colors"
-                            />
-                        </div>
-
-                        {/* Color Filter */}
-                        <div className="flex items-center gap-2">
-                            <Filter className="w-4 h-4 text-slate-500" />
-                            <ColorPicker
-                                selectedColors={selectedColors}
-                                onChange={setSelectedColors}
-                            />
-                        </div>
-
-                        {/* Type Filter */}
-                        <div className="flex items-center gap-2 flex-wrap">
-                            {cardTypes.map(type => (
-                                <button
-                                    key={type}
-                                    onClick={() => {
-                                        setSelectedTypes(prev =>
-                                            prev.includes(type)
-                                                ? prev.filter(t => t !== type)
-                                                : [...prev, type]
-                                        );
-                                    }}
-                                    className={`px-3 py-1 rounded-full text-xs font-medium transition-colors ${selectedTypes.includes(type)
-                                        ? 'bg-violet-500 text-white'
-                                        : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
-                                        }`}
-                                >
-                                    {type}
-                                </button>
-                            ))}
-                        </div>
-
-                        {/* Advanced Filters */}
-                        <div className="w-full">
-                            <AdvancedFilters
-                                selectedEffects={selectedEffects}
-                                selectedSynergies={selectedSynergies}
-                                onEffectsChange={setSelectedEffects}
-                                onSynergiesChange={setSelectedSynergies}
-                            />
-                        </div>
-
-                        {/* Clear Filters */}
-                        {(searchQuery || selectedColors.length > 0 || selectedTypes.length > 0 || selectedEffects.length > 0 || selectedSynergies.length > 0) && (
-                            <button
-                                onClick={() => {
-                                    setSearchQuery('');
-                                    setSelectedColors([]);
-                                    setSelectedTypes([]);
-                                    setSelectedEffects([]);
-                                    setSelectedSynergies([]);
+                        {uniqueCards.length === 0 ? (
+                            <div className="text-center py-12">
+                                <div className="text-slate-600 mb-2">
+                                    <Package className="w-16 h-16 mx-auto mb-4" />
+                                </div>
+                                <p className="text-slate-400 text-lg mb-2">No cards found</p>
+                                <p className="text-slate-500 text-sm">Try adjusting your filters</p>
+                            </div>
+                        ) : (
+                            <CardGrid
+                                cards={uniqueCards}
+                                onCardClick={(card) => {
+                                    setSelectedCard(card);
+                                    setIsModalOpen(true);
                                 }}
-                                className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
-                            >
-                                Clear all filters
-                            </button>
+                                actionLabel="view"
+                            />
                         )}
                     </div>
-                </div>
-            </header>
+                </main>
 
-            {/* Content */}
-            <main className="p-6">
-                <div className="max-w-full mx-auto">
-                    <div className="mb-6 flex items-center justify-between">
-                        <div className="flex items-center gap-2 text-slate-400">
-                            <Package className="w-5 h-5" />
-                            <span className="text-sm">
-                                Showing {uniqueCards.length} unique cards
-                            </span>
-                        </div>
-                    </div>
-
-                    {uniqueCards.length === 0 ? (
-                        <div className="text-center py-12">
-                            <div className="text-slate-600 mb-2">
-                                <Package className="w-16 h-16 mx-auto mb-4" />
-                            </div>
-                            <p className="text-slate-400 text-lg mb-2">No cards found</p>
-                            <p className="text-slate-500 text-sm">Try adjusting your filters</p>
-                        </div>
-                    ) : (
-                        <CardGrid
-                            cards={uniqueCards}
-                            onCardClick={(card) => {
-                                setSelectedCard(card);
-                                setIsModalOpen(true);
-                            }}
-                            actionLabel="view"
-                        />
-                    )}
-                </div>
-            </main>
-
-            {/* Card Detail Modal */}
-            <CardDetailModal
-                card={selectedCard}
-                isOpen={isModalOpen}
-                onClose={() => {
-                    setIsModalOpen(false);
-                    setSelectedCard(null);
-                }}
-            />
-        </div>
+                {/* Card Detail Modal */}
+                <CardDetailModal
+                    card={selectedCard}
+                    isOpen={isModalOpen}
+                    onClose={() => {
+                        setIsModalOpen(false);
+                        setSelectedCard(null);
+                    }}
+                />
+            </div>
+        </div >
     );
 }

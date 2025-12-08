@@ -61,7 +61,7 @@ export function DeckSidebar({ deck, onRemoveCard, onRemoveCommander, onRemoveMis
 
     return (
         <>
-            <div className="w-80 bg-slate-900 border-l border-slate-800 h-screen flex flex-col fixed right-0 top-0 z-20 shadow-2xl">
+            <div className="w-80 bg-slate-900 border-l border-slate-800 flex flex-col fixed right-0 top-20 bottom-0 z-20 shadow-2xl">
                 <div className="p-4 border-b border-slate-800 bg-slate-900/95 backdrop-blur space-y-4">
                     <div className="flex justify-between items-center">
                         <h2 className="font-bold text-lg text-slate-200">Your Deck</h2>
