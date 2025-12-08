@@ -9,6 +9,7 @@ import { ArrowLeft, Search, Filter, Package } from 'lucide-react';
 import { API_BASE_URL } from '@/lib/api';
 import { NavigationPill } from '@/components/NavigationPill';
 import { AdvancedFilters } from '@/components/AdvancedFilters';
+import { CardDetailModal } from '@/components/CardDetailModal';
 
 export default function CollectionPage() {
     const router = useRouter();
@@ -19,6 +20,8 @@ export default function CollectionPage() {
     const [selectedEffects, setSelectedEffects] = useState<string[]>([]);
     const [selectedSynergies, setSelectedSynergies] = useState<string[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [selectedCard, setSelectedCard] = useState<CollectionCard | null>(null);
+    const [isModalOpen, setIsModalOpen] = useState(false);
 
     // Load collection on mount
     useEffect(() => {
@@ -79,8 +82,14 @@ export default function CollectionPage() {
         if (selectedColors.length > 0) {
             filtered = filtered.filter(c => {
                 const identity = c.details?.color_identity || [];
-                // Show cards that match ANY of the selected colors or are colorless
-                return identity.length === 0 || identity.some(color => selectedColors.includes(color));
+
+                // Handle colorless cards - only show if colorless is explicitly selected
+                if (identity.length === 0) {
+                    return selectedColors.includes('C');
+                }
+
+                // All colors in the card must be in the selected colors
+                return identity.every(color => selectedColors.includes(color));
             });
         }
 
@@ -185,7 +194,7 @@ export default function CollectionPage() {
         <div className="min-h-screen bg-slate-950 text-slate-200">
             {/* Header */}
             <header className="bg-slate-900/50 backdrop-blur border-b border-slate-800 p-4 sticky top-0 z-10">
-                <div className="max-w-7xl mx-auto">
+                <div className="max-w-full mx-auto px-6">
                     <div className="flex items-center justify-between gap-4 mb-4 min-h-[44px]">
                         <div className="flex items-center gap-4 flex-shrink-0">
                             <button
@@ -204,7 +213,7 @@ export default function CollectionPage() {
                             </div>
                         </div>
 
-                        <div className="flex-shrink-0">
+                        <div className="flex-shrink-0 mr-80">
                             <NavigationPill />
                         </div>
                     </div>
@@ -285,7 +294,7 @@ export default function CollectionPage() {
 
             {/* Content */}
             <main className="p-6">
-                <div className="max-w-7xl mx-auto">
+                <div className="max-w-full mx-auto">
                     <div className="mb-6 flex items-center justify-between">
                         <div className="flex items-center gap-2 text-slate-400">
                             <Package className="w-5 h-5" />
@@ -306,12 +315,25 @@ export default function CollectionPage() {
                     ) : (
                         <CardGrid
                             cards={uniqueCards}
-                            onAdd={() => { }} // No action needed for collection view
+                            onCardClick={(card) => {
+                                setSelectedCard(card);
+                                setIsModalOpen(true);
+                            }}
                             actionLabel="view"
                         />
                     )}
                 </div>
             </main>
+
+            {/* Card Detail Modal */}
+            <CardDetailModal
+                card={selectedCard}
+                isOpen={isModalOpen}
+                onClose={() => {
+                    setIsModalOpen(false);
+                    setSelectedCard(null);
+                }}
+            />
         </div>
     );
 }

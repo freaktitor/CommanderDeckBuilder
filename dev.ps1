@@ -37,6 +37,18 @@ if ($backendProcess) {
 # Wait a moment
 Start-Sleep -Seconds 2
 
+# Clear Next.js cache to prevent Windows-specific hanging issues
+Write-Host "Checking for corrupted Next.js cache..."
+$nextCachePath = ".\frontend\.next"
+if (Test-Path $nextCachePath) {
+    Write-Host "Clearing .next cache to prevent compilation issues..." -ForegroundColor Yellow
+    Remove-Item -Recurse -Force $nextCachePath -ErrorAction SilentlyContinue
+    Write-Host "Cache cleared." -ForegroundColor Green
+} else {
+    Write-Host "No cache found (fresh start)." -ForegroundColor Green
+}
+Write-Host ""
+
 # Start Frontend
 Write-Host "Starting Frontend (port 3000)..."
 $frontendProcess = Start-Process -FilePath "cmd.exe" -ArgumentList "/c npm run dev > ..\frontend.log 2>&1" -WorkingDirectory ".\frontend" -PassThru -WindowStyle Hidden

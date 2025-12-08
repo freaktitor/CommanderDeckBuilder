@@ -7,10 +7,11 @@ interface CardGridProps {
     cards: CollectionCard[];
     onAdd?: (card: CollectionCard) => void;
     onRemove?: (card: CollectionCard) => void;
+    onCardClick?: (card: CollectionCard) => void;
     actionLabel?: 'add' | 'remove' | 'view';
 }
 
-export function CardGrid({ cards, onAdd, onRemove, actionLabel = 'add' }: CardGridProps) {
+export function CardGrid({ cards, onAdd, onRemove, onCardClick, actionLabel = 'add' }: CardGridProps) {
     if (cards.length === 0) {
         return (
             <div className="text-center py-12 text-slate-500 border-2 border-dashed border-slate-800 rounded-xl">
@@ -20,11 +21,12 @@ export function CardGrid({ cards, onAdd, onRemove, actionLabel = 'add' }: CardGr
     }
 
     return (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-4">
             {cards.map((card, index) => (
                 <div
                     key={`${card.scryfallId}-${index}`}
-                    className="group relative bg-slate-800 rounded-xl overflow-hidden shadow-lg hover:shadow-xl transition-all duration-200 hover:-translate-y-1"
+                    className={`group relative bg-slate-800 rounded-xl overflow-hidden shadow-lg hover:shadow-xl transition-all duration-200 hover:-translate-y-1 ${onCardClick ? 'cursor-pointer' : ''}`}
+                    onClick={() => onCardClick?.(card)}
                 >
                     {/* Image */}
                     <div className="aspect-[2.5/3.5] relative bg-slate-900">
@@ -41,27 +43,35 @@ export function CardGrid({ cards, onAdd, onRemove, actionLabel = 'add' }: CardGr
                             </div>
                         )}
 
-                        {/* Overlay Actions */}
-                        <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                            {onAdd && (
-                                <button
-                                    onClick={() => onAdd(card)}
-                                    className="p-3 bg-violet-600 text-white rounded-full hover:bg-violet-500 transition-colors"
-                                    title="Add to Deck"
-                                >
-                                    <Plus className="w-6 h-6" />
-                                </button>
-                            )}
-                            {onRemove && (
-                                <button
-                                    onClick={() => onRemove(card)}
-                                    className="p-3 bg-red-600 text-white rounded-full hover:bg-red-500 transition-colors"
-                                    title="Remove from Deck"
-                                >
-                                    <Minus className="w-6 h-6" />
-                                </button>
-                            )}
-                        </div>
+                        {/* Overlay Actions - Only show if not in click mode */}
+                        {!onCardClick && (
+                            <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                                {onAdd && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onAdd(card);
+                                        }}
+                                        className="p-3 bg-violet-600 text-white rounded-full hover:bg-violet-500 transition-colors"
+                                        title="Add to Deck"
+                                    >
+                                        <Plus className="w-6 h-6" />
+                                    </button>
+                                )}
+                                {onRemove && (
+                                    <button
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            onRemove(card);
+                                        }}
+                                        className="p-3 bg-red-600 text-white rounded-full hover:bg-red-500 transition-colors"
+                                        title="Remove from Deck"
+                                    >
+                                        <Minus className="w-6 h-6" />
+                                    </button>
+                                )}
+                            </div>
+                        )}
                     </div>
 
                     {/* Info Footer */}
