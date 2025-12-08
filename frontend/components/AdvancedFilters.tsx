@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { ChevronDown, ChevronUp, Zap, Sparkles } from 'lucide-react';
 
 interface AdvancedFiltersProps {
@@ -53,6 +53,24 @@ export function AdvancedFilters({
 }: AdvancedFiltersProps) {
     const [isExpanded, setIsExpanded] = useState(false);
 
+    const containerRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const handleClickOutside = (event: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+                setIsExpanded(false);
+            }
+        };
+
+        if (isExpanded) {
+            document.addEventListener('mousedown', handleClickOutside);
+        }
+
+        return () => {
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [isExpanded]);
+
     const toggleEffect = (effect: string) => {
         if (selectedEffects.includes(effect)) {
             onEffectsChange(selectedEffects.filter(e => e !== effect));
@@ -77,7 +95,10 @@ export function AdvancedFilters({
     const hasActiveFilters = selectedEffects.length > 0 || selectedSynergies.length > 0;
 
     return (
-        <div className="bg-slate-900/50 border border-slate-700/50 rounded-lg overflow-hidden">
+        <div
+            ref={containerRef}
+            className="bg-slate-900/50 border border-slate-700/50 rounded-lg overflow-hidden"
+        >
             {/* Header */}
             <button
                 onClick={() => setIsExpanded(!isExpanded)}
@@ -126,8 +147,8 @@ export function AdvancedFilters({
                                     key={effect}
                                     onClick={() => toggleEffect(effect)}
                                     className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${selectedEffects.includes(effect)
-                                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 shadow-sm'
-                                            : 'bg-slate-800/50 text-slate-400 hover:bg-slate-700/50 hover:text-slate-300 border border-slate-700/30'
+                                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30 shadow-sm'
+                                        : 'bg-slate-800/50 text-slate-400 hover:bg-slate-700/50 hover:text-slate-300 border border-slate-700/30'
                                         }`}
                                 >
                                     {effect}
@@ -160,8 +181,8 @@ export function AdvancedFilters({
                                     key={synergy}
                                     onClick={() => toggleSynergy(synergy)}
                                     className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all ${selectedSynergies.includes(synergy)
-                                            ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30 shadow-sm'
-                                            : 'bg-slate-800/50 text-slate-400 hover:bg-slate-700/50 hover:text-slate-300 border border-slate-700/30'
+                                        ? 'bg-violet-500/20 text-violet-300 border border-violet-500/30 shadow-sm'
+                                        : 'bg-slate-800/50 text-slate-400 hover:bg-slate-700/50 hover:text-slate-300 border border-slate-700/30'
                                         }`}
                                 >
                                     {synergy}
