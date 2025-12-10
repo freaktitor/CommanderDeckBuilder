@@ -3,7 +3,7 @@
 import { CollectionCard } from '@/lib/types';
 import { X, ExternalLink } from 'lucide-react';
 import { useEffect } from 'react';
-import { ManaCost } from './ManaCost';
+import { ManaCost, ManaSymbol } from './ManaCost';
 
 interface CardDetailModalProps {
     card: CollectionCard | null;
@@ -35,9 +35,20 @@ export function CardDetailModal({ card, isOpen, onClose }: CardDetailModalProps)
     // Format EDHREC URL (card names need to be lowercase and hyphenated)
     const edhrecUrl = `https://edhrec.com/cards/${details.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
 
+    // Helper to parse text with symbols
+    const renderTextWithSymbols = (text: string) => {
+        if (!text) return null;
+        return text.split(/(\{[^}]+\})/g).map((part, index) => {
+            if (part.match(/^\{[^}]+\}$/)) {
+                return <ManaSymbol key={index} symbol={part} size={16} />;
+            }
+            return <span key={index}>{part}</span>;
+        });
+    };
+
     // Get oracle text (handle double-faced cards)
     const getOracleText = () => {
-        if (details.oracle_text) return details.oracle_text;
+        if (details.oracle_text) return renderTextWithSymbols(details.oracle_text);
         if (details.card_faces) {
             return details.card_faces.map((face, idx) => (
                 <div key={idx} className="mb-4">
@@ -45,7 +56,7 @@ export function CardDetailModal({ card, isOpen, onClose }: CardDetailModalProps)
                     <div className="mb-2">
                         <ManaCost manaCost={face.mana_cost} size={18} />
                     </div>
-                    <div className="text-slate-300">{face.oracle_text}</div>
+                    <div className="text-slate-300">{renderTextWithSymbols(face.oracle_text)}</div>
                 </div>
             ));
         }
