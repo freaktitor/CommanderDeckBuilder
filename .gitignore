@@ -2,6 +2,18 @@
 .dev-pids
 *.log
 
+# Env
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+node_modules/
+
+# Next.js (if any in root)
+.next/
+out/
+
 # OS
 .DS_Store
 Thumbs.db

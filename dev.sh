@@ -6,7 +6,7 @@ echo "🎴 Commander Deck Builder - Starting Development Environment"
 echo ""
 
 # Check if we're in the right directory
-if [ ! -d "backend" ] || [ ! -d "frontend" ]; then
+if [ ! -d "frontend" ]; then
     echo "❌ Error: Please run this script from the project root directory"
     exit 1
 fi
@@ -23,29 +23,9 @@ check_port() {
 # Check ports
 echo "Checking ports..."
 check_port 3000
-check_port 3001
 echo ""
 
-# Start backend
-echo "🚀 Starting Backend Server (port 3001)..."
-cd backend
-if [ ! -d "node_modules" ]; then
-    echo "📦 Installing backend dependencies..."
-    npm install
-fi
-
-if [ ! -d "dist" ]; then
-    echo "🔨 Building backend..."
-    npm run build
-fi
-
-npm run dev > ../backend.log 2>&1 &
-BACKEND_PID=$!
-echo "✅ Backend started (PID: $BACKEND_PID)"
-cd ..
-
-# Wait a moment for backend to start
-sleep 2
+# Start frontend (contains backend API)
 
 # Start frontend
 echo "🎨 Starting Frontend (port 3000)..."
@@ -65,21 +45,18 @@ echo "━━━━━━━━━━━━━━━━━━━━━━━━�
 echo "✨ Commander Deck Builder is running!"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""
-echo "🌐 Frontend: http://localhost:3000"
-echo "🔧 Backend:  http://localhost:3001"
+echo "🌐 URL: http://localhost:3000"
 echo ""
 echo "📋 Logs:"
-echo "   Backend:  tail -f backend.log"
-echo "   Frontend: tail -f frontend.log"
+echo "   tail -f frontend.log"
 echo ""
-echo "🛑 To stop: kill $BACKEND_PID $FRONTEND_PID"
+echo "🛑 To stop: kill $FRONTEND_PID"
 echo "   Or run:  pkill -P $$"
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 
 # Save PIDs to file for easy cleanup
-echo "$BACKEND_PID" > .dev-pids
-echo "$FRONTEND_PID" >> .dev-pids
+echo "$FRONTEND_PID" > .dev-pids
 
 # Recursive kill function to ensure all child processes (like ts-node) are killed
 kill_tree() {
@@ -106,10 +83,6 @@ cleanup() {
     echo ""
     echo "🛑 Stopping services..."
     
-    if [ -n "$BACKEND_PID" ]; then
-        echo "   Killing Backend tree ($BACKEND_PID)..."
-        kill_tree "$BACKEND_PID"
-    fi
     
     if [ -n "$FRONTEND_PID" ]; then
         echo "   Killing Frontend tree ($FRONTEND_PID)..."
