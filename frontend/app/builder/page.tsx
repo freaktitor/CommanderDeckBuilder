@@ -1,7 +1,7 @@
 'use client';
 
-import { useState, useEffect, useMemo } from 'react';
-import { useRouter } from 'next/navigation';
+import { useState, useEffect, useMemo, Suspense, useRef } from 'react';
+import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession, signIn, signOut } from "next-auth/react";
 import { CollectionCard, Deck, ScryfallCard } from '@/lib/types';
 import { ColorPicker } from '@/components/ColorPicker';
@@ -13,8 +13,10 @@ import { TopBar } from '@/components/TopBar';
 
 import { API_BASE_URL } from '@/lib/api';
 
-export default function BuilderPage() {
+function BuilderContent() {
     const router = useRouter();
+    const searchParams = useSearchParams();
+    const deckId = searchParams.get('deckId');
     const { data: session } = useSession();
     const [collection, setCollection] = useState<CollectionCard[]>([]);
     const [selectedColors, setSelectedColors] = useState<string[]>([]);
@@ -24,6 +26,92 @@ export default function BuilderPage() {
     const [isAutoBuilding, setIsAutoBuilding] = useState(false);
     const [isGoldfishOpen, setIsGoldfishOpen] = useState(false);
     const [chaosLoading, setChaosLoading] = useState(false);
+    const [isSavingDeck, setIsSavingDeck] = useState(false);
+    const hasLoadedDeck = useRef(false);
+
+    const handleSaveDeck = async () => {
+        console.log('[Save] handleSaveDeck initiated. isUpdate:', !!deckId, 'deckId:', deckId);
+
+        if (!session && process.env.NODE_ENV !== 'development') {
+            alert('Please sign in to save your deck!');
+            return;
+        }
+
+        if (!deck.commanders || deck.commanders.length === 0) {
+            console.log('[Save] Aborted: No commander selected');
+            alert('Please select a commander first!');
+            return;
+        }
+
+        setIsSavingDeck(true);
+        try {
+            const isUpdate = !!deckId;
+            let finalName = '';
+
+            if (!isUpdate) {
+                finalName = prompt('Enter a name for your deck:', `${deck.commanders[0].name} Deck`) || '';
+                if (!finalName) {
+                    console.log('[Save] Aborted: No name provided');
+                    setIsSavingDeck(false);
+                    return;
+                }
+            }
+
+            const url = isUpdate ? `${API_BASE_URL}/decks/${deckId}` : `${API_BASE_URL}/decks`;
+            const method = isUpdate ? 'PATCH' : 'POST';
+
+            console.log(`[Save] Sending ${method} request to ${url}`);
+
+            const res = await fetch(url, {
+                method,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    name: finalName || undefined,
+                    commanders: deck.commanders,
+                    cards: deck.cards,
+                    colors: deck.colors
+                })
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                console.log('[Save] Request successful:', data);
+
+                if (!isUpdate && data.deck?.id) {
+                    console.log('[Save] New deck created, updating URL to deckId:', data.deck.id);
+                    hasLoadedDeck.current = true;
+                    // Force a hard navigation-like update to clear any stale state
+                    router.replace(`/builder?deckId=${data.deck.id}`);
+                }
+
+                alert(isUpdate ? 'Deck updated successfully!' : 'Deck saved successfully!');
+            } else {
+                const err = await res.json();
+                console.error('[Save] Request failed:', err);
+                throw new Error(err.error || 'Failed to save deck');
+            }
+        } catch (e: any) {
+            console.error('[Save] Fatal error:', e);
+            alert(`Error saving deck: ${e.message}`);
+        } finally {
+            setIsSavingDeck(false);
+        }
+    };
+
+    const handleResetWorkspace = () => {
+        console.log('[Reset] handleResetWorkspace initiated');
+        if (confirm('Are you sure you want to clear this workspace and start a fresh deck?')) {
+            // 1. Clear State
+            setDeck({ commanders: [], cards: [], colors: [], missingCards: [] });
+            setActiveTab('commander');
+            setSelectedColors([]);
+            hasLoadedDeck.current = false;
+
+            // 2. Clear URL - Use router.replace to /builder to remove ?deckId=...
+            console.log('[Reset] Clearing URL and redirecting to /builder');
+            router.replace('/builder');
+        }
+    };
 
     // Load collection on mount
     useEffect(() => {
@@ -35,7 +123,6 @@ export default function BuilderPage() {
                 if (data.collection && data.collection.length > 0) {
                     setCollection(data.collection);
                 } else {
-                    // If no collection found, redirect to upload
                     router.push('/');
                 }
             } catch (e) {
@@ -46,6 +133,48 @@ export default function BuilderPage() {
 
         fetchCollection();
     }, [router]);
+
+    // Load deck if deckId is present
+    useEffect(() => {
+        if (!deckId || hasLoadedDeck.current) return;
+
+        const loadSavedDeck = async () => {
+            try {
+                const res = await fetch(`${API_BASE_URL}/decks`);
+                if (!res.ok) return;
+                const { decks } = await res.json();
+                const savedDeck = decks.find((d: any) => d.id === deckId);
+
+                if (savedDeck) {
+                    // Start by finding the full details of the commanders
+                    // Since the user collection is already being fetched, we can wait for it
+                    if (collection.length === 0) return;
+
+                    const savedCommanders = collection.filter(c =>
+                        savedDeck.commander_ids?.includes(c.scryfallId)
+                    ).map(c => c.details).filter(Boolean);
+
+                    if (savedCommanders.length > 0) {
+                        setDeck({
+                            commanders: savedCommanders as ScryfallCard[],
+                            cards: savedDeck.card_ids || [],
+                            colors: savedDeck.colors || [],
+                            missingCards: []
+                        });
+                        if (savedDeck.colors) setSelectedColors(savedDeck.colors);
+                        setActiveTab('library');
+                        hasLoadedDeck.current = true; // Mark as loaded
+                    }
+                }
+            } catch (e) {
+                console.error('Failed to load saved deck', e);
+            }
+        };
+
+        if (collection.length > 0) {
+            loadSavedDeck();
+        }
+    }, [deckId, collection]);
 
     // Update deck colors when commanders change
     useEffect(() => {
@@ -770,11 +899,9 @@ export default function BuilderPage() {
                         missingCards: prev.missingCards?.filter(c => c.name !== cardName)
                     }));
                 }}
-                onClearDeck={() => {
-                    setDeck({ commanders: [], cards: [], colors: [], missingCards: [] });
-                    setActiveTab('commander');
-                    setSelectedColors([]);
-                }}
+                onClearDeck={handleResetWorkspace}
+                onSave={handleSaveDeck}
+                isSaving={isSavingDeck}
             />
 
 
@@ -784,5 +911,17 @@ export default function BuilderPage() {
                 deck={deck.cards}
             />
         </div >
+    );
+}
+
+export default function BuilderPage() {
+    return (
+        <Suspense fallback={
+            <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-violet-500"></div>
+            </div>
+        }>
+            <BuilderContent />
+        </Suspense>
     );
 }

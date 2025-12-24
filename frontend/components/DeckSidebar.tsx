@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { CollectionCard, Deck } from '@/lib/types';
-import { Trash2, Download } from 'lucide-react';
+import { Trash2, Download, Save } from 'lucide-react';
 
 import { SaltMeter } from './SaltMeter';
 
@@ -12,9 +12,11 @@ interface DeckSidebarProps {
     onRemoveCommander: (cmdr: any) => void;
     onRemoveMissingCard: (cardName: string) => void;
     onClearDeck: () => void;
+    onSave: () => void;
+    isSaving?: boolean;
 }
 
-export function DeckSidebar({ deck, onRemoveCard, onRemoveCommander, onRemoveMissingCard, onClearDeck }: DeckSidebarProps) {
+export function DeckSidebar({ deck, onRemoveCard, onRemoveCommander, onRemoveMissingCard, onClearDeck, onSave, isSaving }: DeckSidebarProps) {
     const [hoveredCard, setHoveredCard] = useState<CollectionCard | null>(null);
     const totalCards = deck.cards.reduce((acc, card) => acc + 1, 0) + (deck.commanders?.length || 0);
 
@@ -72,27 +74,36 @@ export function DeckSidebar({ deck, onRemoveCard, onRemoveCommander, onRemoveMis
 
                     <SaltMeter cards={deck.cards} />
 
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="flex flex-col gap-2">
                         <button
-                            onClick={downloadDeck}
-                            disabled={totalCards === 0}
-                            className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            onClick={onSave}
+                            disabled={totalCards === 0 || isSaving}
+                            className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-bold transition-all shadow-lg shadow-violet-500/10 active:scale-[0.98] ${isSaving
+                                ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                                : 'bg-gradient-to-r from-violet-600 to-indigo-600 hover:from-violet-500 hover:to-indigo-500 text-white'
+                                }`}
                         >
-                            <Download className="w-4 h-4" />
-                            Export
+                            <Save className={`w-4 h-4 ${isSaving ? 'animate-pulse' : ''}`} />
+                            {isSaving ? 'Saving...' : 'Save Deck to Profile'}
                         </button>
-                        <button
-                            onClick={() => {
-                                if (confirm('Are you sure you want to clear the entire deck?')) {
-                                    onClearDeck();
-                                }
-                            }}
-                            disabled={totalCards === 0}
-                            className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-red-900/30 text-slate-300 hover:text-red-400 py-2 rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                            <Trash2 className="w-4 h-4" />
-                            Clear
-                        </button>
+                        <div className="grid grid-cols-2 gap-2">
+                            <button
+                                onClick={downloadDeck}
+                                disabled={totalCards === 0}
+                                className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-slate-700 text-slate-300 py-2 rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <Download className="w-4 h-4" />
+                                Export
+                            </button>
+                            <button
+                                onClick={onClearDeck}
+                                disabled={totalCards === 0}
+                                className="flex items-center justify-center gap-2 bg-slate-800 hover:bg-red-900/30 text-slate-300 hover:text-red-400 py-2 rounded-lg text-sm transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <Trash2 className="w-4 h-4" />
+                                Clear
+                            </button>
+                        </div>
                     </div>
                 </div>
 
