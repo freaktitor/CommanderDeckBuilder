@@ -440,6 +440,9 @@ function BuilderContent() {
         const newCommander = card.details as ScryfallCard;
         const currentCommanders = deck.commanders || [];
 
+        // Clear search query after selection
+        setSearchQuery('');
+
         // Check if commander can have partners
         const canAddMore = (cmdr: ScryfallCard) => {
             const oracle = cmdr.oracle_text || "";
@@ -487,6 +490,7 @@ function BuilderContent() {
 
     const addToDeck = (card: CollectionCard) => {
         setDeck(prev => ({ ...prev, cards: [...prev.cards, card] }));
+        setSearchQuery('');
     };
 
     const removeFromDeck = (card: CollectionCard) => {
@@ -532,33 +536,55 @@ function BuilderContent() {
             }
 
             const data = await response.json();
-            const { cardNames = [], cardIds = [], suggestedDetails = [] } = data;
+            const { cardNames = [], cardIds = [], deckList = [], suggestedDetails = [] } = data;
 
             const addedCards: CollectionCard[] = [];
             const missing: ScryfallCard[] = [];
 
-            // 1. Process specific versions from cardIds if available
-            if (cardIds.length > 0) {
-                cardIds.forEach((id: string) => {
-                    const cardInCollection = collection.find(c => c.scryfallId === id);
+            // 1. Prefer the structured deckList (guarantees count and artwork variety)
+            if (deckList.length > 0) {
+                deckList.forEach((item: { name: string; scryfallId: string | null }) => {
+                    const isBasicLand = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'].includes(item.name);
+
+                    // Try to find the specific version in collection if ID provided
+                    let cardInCollection = item.scryfallId
+                        ? collection.find(c => c.scryfallId === item.scryfallId)
+                        : null;
+
+                    // Fallback to name match if specific ID not in collection (sanity check)
+                    if (!cardInCollection) {
+                        cardInCollection = collection.find(c => c.name === item.name);
+                    }
+
                     if (cardInCollection) {
-                        const isBasicLand = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'].includes(cardInCollection.name);
                         addedCards.push({
                             ...cardInCollection,
                             scryfallId: isBasicLand ? `${cardInCollection.scryfallId}-${Math.random()}` : cardInCollection.scryfallId
                         });
                     } else {
-                        // If not in collection, it's missing
-                        const details = suggestedDetails.find((d: ScryfallCard) => d.id === id);
+                        // Card not in collection, it's missing
+                        const details = suggestedDetails.find((d: ScryfallCard) => d.name === item.name);
+
                         if (details) {
                             missing.push(details);
+                        } else if (isBasicLand) {
+                            // Dummy basic land generation for completeness
+                            addedCards.push({
+                                quantity: 1,
+                                name: item.name,
+                                scryfallId: `basic-${item.name}-${Math.random()}`,
+                                details: { id: `dummy-${item.name}`, name: item.name, type_line: "Basic Land", image_uris: { normal: "" } } as any
+                            });
                         }
                     }
                 });
             } else {
-                // 2. Legacy fallback for old API or if cardIds is empty
+                // Legacy fallback: Match by name
+                const addedCounts: Record<string, number> = {};
                 cardNames.forEach((cardName: string) => {
                     const isBasicLand = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'].includes(cardName);
+                    if (!isBasicLand && addedCounts[cardName]) return;
+
                     const cardInCollection = collection.find(c => c.name.toLowerCase() === cardName.toLowerCase());
 
                     if (cardInCollection) {
@@ -566,9 +592,20 @@ function BuilderContent() {
                             ...cardInCollection,
                             scryfallId: isBasicLand ? `${cardInCollection.scryfallId}-${Math.random()}` : cardInCollection.scryfallId
                         });
+                        addedCounts[cardName] = (addedCounts[cardName] || 0) + 1;
                     } else {
                         const details = suggestedDetails.find((d: ScryfallCard) => d.name === cardName);
-                        if (details) missing.push(details);
+                        if (details) {
+                            missing.push(details);
+                            addedCounts[cardName] = (addedCounts[cardName] || 0) + 1;
+                        } else if (isBasicLand) {
+                            addedCards.push({
+                                quantity: 1,
+                                name: cardName,
+                                scryfallId: `basic-${cardName}-${Math.random()}`,
+                                details: { id: `dummy-${cardName}`, name: cardName, type_line: "Basic Land", image_uris: { normal: "" } } as any
+                            });
+                        }
                     }
                 });
             }

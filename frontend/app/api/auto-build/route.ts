@@ -38,13 +38,24 @@ export async function POST(req: NextRequest) {
         const detectCommanderSynergies = (commanders: ScryfallCard[]) => {
             const synergies = {
                 landSubtypes: [] as string[],
-                strategies: [] as string[], // e.g., 'LandMatters', 'Tokens'
+                strategies: [] as string[],
+                creatureTypes: [] as string[],
             };
 
             const landSubtypes = ['Town', 'Gate', 'Desert', 'Cave', 'Lair', 'Sphere', 'Locus'];
+            const strategyMap: Record<string, string[]> = {
+                'Aristocrats': ['sacrifice', 'die', 'graveyard', 'death'],
+                'Tokens': ['token', 'create'],
+                'Artifacts': ['artifact'],
+                'Enchantments': ['enchantment'],
+                'Spellslinger': ['instant', 'sorcery'],
+                'Counters': ['counter'],
+                'Lifegain': ['life', 'gain'],
+            };
 
             for (const cmd of commanders) {
                 const text = cmd.oracle_text?.toLowerCase() || '';
+                const typeLine = cmd.type_line?.toLowerCase() || '';
 
                 // 1. Detect Land Subtypes
                 for (const subtype of landSubtypes) {
@@ -55,8 +66,16 @@ export async function POST(req: NextRequest) {
                     }
                 }
 
-                // 2. Detect Land Matters Strategy
-                // If it cares about specific lands (Towns) or mentions "landfall", "lands you control"
+                // 2. Detect Strategies
+                for (const [strategy, keywords] of Object.entries(strategyMap)) {
+                    if (keywords.some(k => text.includes(k))) {
+                        if (!synergies.strategies.includes(strategy)) {
+                            synergies.strategies.push(strategy);
+                        }
+                    }
+                }
+
+                // Extra check for LandMatters (more complex keywords)
                 if (
                     synergies.landSubtypes.length > 0 ||
                     text.includes('landfall') ||
@@ -68,6 +87,18 @@ export async function POST(req: NextRequest) {
                     if (!synergies.strategies.includes('LandMatters')) {
                         synergies.strategies.push('LandMatters');
                     }
+                }
+
+                // 3. Extract Creature Types (e.g., "Human", "Soldier")
+                const match = typeLine.match(/legendary creature — ([\w\s]+)/);
+                if (match) {
+                    const types = match[1].split(' ');
+                    types.forEach(t => {
+                        const capitalized = t.charAt(0).toUpperCase() + t.slice(1);
+                        if (!synergies.creatureTypes.includes(capitalized) && capitalized !== 'Legendary' && capitalized !== 'Creature') {
+                            synergies.creatureTypes.push(capitalized);
+                        }
+                    });
                 }
             }
             return synergies;
@@ -104,7 +135,42 @@ export async function POST(req: NextRequest) {
             if (!text && cardObj.card_faces) {
                 text = cardObj.card_faces.map((f: any) => f.oracle_text || "").join("\n");
             }
+            const name = cardObj.name || "";
+            const type = cardObj.type_line || "";
+            const lowerText = text.toLowerCase();
+            const lowerName = name.toLowerCase();
 
+            // 1. Blacklist low-tier/random cards that dilute Commander decks
+            const blacklist = [
+                'mystic skull', 'breaching dragonstorm', 'monstrosity',
+                'kill shot', 'destroy the evidence', 'hellish sideswipe',
+                'unholy strength', 'titan\'s strength', 'dual shot',
+                'ox drover', 'liberated livestock', 'wrecking crew'
+            ];
+            if (blacklist.some(b => lowerName.includes(b))) return false;
+
+            // 2. Filter out low-impact one-shot tricks
+            const isCombatTrick = /Instant|Sorcery/.test(type) &&
+                /(gets \+\d\/\+\d|deals \d damage to target|target creature gets|target creature gains)/i.test(text) &&
+                !/draw|sacrifice|token|create|scry|surveil|exile|destroy/i.test(lowerText);
+
+            if (isCombatTrick) return false;
+
+            // 3. Conditional Theme Filtering (Avoid theme-specific payoffs if not our theme)
+            if (!synergies.strategies.includes('Enchantments')) {
+                // Cut "enchantress" payoffs if not an enchantment deck
+                if (lowerText.includes('enchantment spell') || lowerText.includes('whenever you cast an enchantment') || lowerName.includes('starfield mystic') || lowerName.includes('umbra mystic') || lowerName.includes('ajani\'s chosen')) {
+                    if (!type.includes('Enchantment')) return false;
+                }
+            }
+            if (!synergies.strategies.includes('Spellslinger')) {
+                // Cut "spellslinging" payoffs if not a spellslinger deck
+                if (lowerText.includes('whenever you cast an instant or sorcery') || lowerText.includes('whenever you cast a noncreature spell') || lowerName.includes('kessig flamebreather')) {
+                    if (!type.includes('Instant') && !type.includes('Sorcery')) return false;
+                }
+            }
+
+            // 4. Color Identity Compliance
             const colorMap: Record<string, string> = {
                 'White': 'W', 'Blue': 'U', 'Black': 'B', 'Red': 'R', 'Green': 'G'
             };
@@ -137,7 +203,8 @@ export async function POST(req: NextRequest) {
             const ci = card.details?.color_identity ?? [];
 
             if (allCommanderNames.some(n => card.name.toLowerCase() === n.toLowerCase())) return false;
-            if (type.includes("Basic Land")) return false;
+            // Basics are now eligible so they can be picked for variety if owned
+            // if (type.includes("Basic Land")) return false; 
             if (!ci.every((c: string) => commanderColors.includes(c))) return false;
 
             return isCardRelevant(card.details);
@@ -145,26 +212,100 @@ export async function POST(req: NextRequest) {
 
         const uniqueEligible = Array.from(new Map(eligible.map((c: CollectionCard) => [c.name, c])).values()) as CollectionCard[];
 
-        // Fetch Staples
-        const TARGET_STAPLES = 15;
+        // Helper to check for Synergy Cards
+        const isSynergyCard = (card: CollectionCard, synergies: any) => {
+            const text = (card.details?.oracle_text || "").toLowerCase();
+            const typeLine = (card.details?.type_line || "").toLowerCase();
+
+            // 1. Subtype Synergy (e.g., Human for Trynn)
+            if (synergies.creatureTypes.some((t: string) => typeLine.includes(t.toLowerCase()))) return true;
+
+            // 2. Strategy Synergy
+            const strategyKeywords: Record<string, string[]> = {
+                'Aristocrats': ['sacrifice', 'die', 'deaths', 'graveyard'],
+                'Tokens': ['token', 'create'],
+                'Artifacts': ['artifact'],
+                'Enchantments': ['enchantment'],
+                'Spellslinger': ['instant', 'sorcery'],
+                'Counters': ['counter'],
+                'Lifegain': ['life', 'gain'],
+            };
+
+            for (const strategy of synergies.strategies) {
+                const keywords = strategyKeywords[strategy] || [];
+                if (keywords.some(k => text.includes(k))) return true;
+            }
+
+            if (synergies.strategies.includes('LandMatters')) {
+                return (
+                    text.includes('landfall') ||
+                    text.includes('play an additional land') ||
+                    text.includes('lands you control') ||
+                    (text.includes('land enters the battlefield') && !text.includes('search your library'))
+                );
+            }
+            return false;
+        };
+
         const staples: ScryfallCard[] = [];
         const suggestedDetails: ScryfallCard[] = [];
-
         const colorQuery = commanderColors.length === 0 ? "id:c" : `id<=${commanderColors.join("")}`;
 
+        // Fetch Generic Staples
         try {
-            const staplesResp = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(`${colorQuery} legal:commander -t:land -t:basic`)}&order=edhrec&dir=asc&page=1`);
-            if (staplesResp.ok) {
-                const data = await staplesResp.json();
-                const list = data.data.filter((c: any) =>
-                    !allCommanderNames.includes(c.name) &&
-                    isCardRelevant(c)
-                ).slice(0, TARGET_STAPLES);
-                staples.push(...list);
-                suggestedDetails.push(...list);
+            const genericResp = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(`${colorQuery} legal:commander -t:land -t:basic`)}&order=edhrec&dir=asc&page=1`);
+            if (genericResp.ok) {
+                const data = await genericResp.json();
+                const list = data.data.filter((c: any) => !allCommanderNames.includes(c.name) && isCardRelevant(c)).slice(0, 10);
+
+                list.forEach((c: any) => {
+                    if (cardNames.length < MAX_NON_LANDS && !cardNames.includes(c.name)) {
+                        cardNames.push(c.name);
+                        suggestedDetails.push(c);
+                    }
+                });
             }
-        } catch (e) {
-            console.error("Failed to fetch staples", e);
+        } catch (e) { console.error("Failed to fetch generic staples", e); }
+
+        // Fetch Theme Staples
+        if (synergies.strategies.length > 0 || synergies.creatureTypes.length > 0) {
+            const themeKeywords = synergies.strategies.map(s => {
+                const map: Record<string, string> = {
+                    'Aristocrats': '(o:sacrifice OR o:die)',
+                    'Tokens': '(o:token OR o:create)',
+                    'Artifacts': 't:artifact',
+                    'Enchantments': 't:enchantment',
+                    'Spellslinger': '(t:instant OR t:sorcery)',
+                    'Counters': 'o:counter',
+                    'Lifegain': 'o:life o:gain',
+                    'LandMatters': '(o:landfall OR o:"play an additional land")'
+                };
+                return map[s] || '';
+            }).filter(Boolean).join(' OR ');
+
+            const subtypeQuery = synergies.creatureTypes.map(t => `t:${t}`).join(' OR ');
+            const themePart = [themeKeywords, subtypeQuery].filter(Boolean).map(p => `(${p})`).join(' OR ');
+
+            if (themePart) {
+                try {
+                    const themeResp = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(`${colorQuery} legal:commander -t:land -t:basic (${themePart})`)}&order=edhrec&dir=asc&page=1`);
+                    if (themeResp.ok) {
+                        const data = await themeResp.json();
+                        const list = data.data.filter((c: any) =>
+                            !allCommanderNames.includes(c.name) &&
+                            !cardNames.includes(c.name) &&
+                            isCardRelevant(c)
+                        ).slice(0, 15);
+
+                        list.forEach((c: any) => {
+                            if (cardNames.length < MAX_NON_LANDS) {
+                                cardNames.push(c.name);
+                                suggestedDetails.push(c);
+                            }
+                        });
+                    }
+                } catch (e) { console.error("Failed to fetch theme staples", e); }
+            }
         }
 
         // Helper predicates
@@ -172,24 +313,6 @@ export async function POST(req: NextRequest) {
         const isRemoval = (t: string, n: string) => /Instant|Sorcery/.test(t) && /destroy|exile|kill|terminate|path|swords|wrath|damnation|wipe/.test(n.toLowerCase());
         const isRamp = (t: string, n: string) => /(Artifact|Enchantment|Sorcery)/.test(t) && /(sol ring|mana|ramp|cultivate|kodama|reach|signet|talisman|arcane|fellwar)/.test(n.toLowerCase());
         const isDraw = (n: string) => /(draw|rhystic|study|mystic|remora|phyrexian arena|necropotence|sylvan library)/.test(n.toLowerCase());
-
-        // Helper to check for Synergy Cards
-        const isSynergyCard = (card: CollectionCard, synergies: any) => {
-            const text = (card.details?.oracle_text || "").toLowerCase();
-
-            if (synergies.strategies.includes('LandMatters')) {
-                // Return true if card has Landfall, extra lands, or land synergies
-                return (
-                    text.includes('landfall') ||
-                    text.includes('play an additional land') ||
-                    text.includes('play extra land') ||
-                    text.includes('lands you control') ||
-                    // Exclude basics/fetches from being counted as "synergy non-lands"
-                    (text.includes('land enters the battlefield') && !text.includes('search your library'))
-                );
-            }
-            return false;
-        };
 
         let rampCount = 0;
         let drawCount = 0;
@@ -201,23 +324,26 @@ export async function POST(req: NextRequest) {
 
         // Helper to safely add cards respecting limits
         const addUniqueCards = (candidates: CollectionCard[], maxToAdd: number) => {
+            // Variety & Theme Sort: Prioritize Subtypes and High Synergy
+            const sortedCandidates = [...candidates].sort((a, b) => {
+                const aSubtype = synergies.creatureTypes.some(t => a.details?.type_line?.includes(t)) ? 1 : 0;
+                const bSubtype = synergies.creatureTypes.some(t => b.details?.type_line?.includes(t)) ? 1 : 0;
+                if (aSubtype !== bSubtype) return bSubtype - aSubtype;
+
+                const aSynergy = isSynergyCard(a, synergies) ? 1 : 0;
+                const bSynergy = isSynergyCard(b, synergies) ? 1 : 0;
+                return bSynergy - aSynergy;
+            });
+
             let added = 0;
-            for (const card of candidates) {
-                if (cardNames.length >= MAX_NON_LANDS) break; // STRICT STOP
+            for (const card of sortedCandidates) {
+                if (cardNames.length >= MAX_NON_LANDS) break;
                 if (added >= maxToAdd) break;
 
                 if (!cardNames.includes(card.name)) {
-                    // Variety Fix: Pick a random version from the full eligible list
-                    const versions = eligible.filter(c => c.name === card.name);
-                    const selectedVersion = versions.length > 0
-                        ? versions[Math.floor(Math.random() * versions.length)]
-                        : card;
-
+                    const versions = eligible.filter((c: CollectionCard) => c.name === card.name);
+                    const selectedVersion = versions.length > 0 ? versions[Math.floor(Math.random() * versions.length)] : card;
                     cardNames.push(selectedVersion.name);
-                    // Update: Store the specific version metadata if needed
-                    // The 'addedCards' logic in builder/page.tsx will match by name again, 
-                    // but wait, if the auto-build response returns just names, the problem remains!
-                    // I should return SUGGESTED FULL DATA or ensure the builder picks correctly.
                     added++;
                 }
             }
@@ -225,59 +351,57 @@ export async function POST(req: NextRequest) {
         };
 
         // 2. Fetch & Add Strategy Synergy Cards (High Priority)
-        // This fetches "ideal" cards for the strategy from Scryfall
-        if (synergies.strategies.includes('LandMatters')) {
-            console.log("Fetching high-synergy Land Matters cards...");
+        if (synergies.strategies.length > 0) {
+            console.log("Fetching high-synergy strategy cards for:", synergies.strategies);
             try {
-                // Fetch top EDHREC cards for this strategy (Landfall, etc.)
-                const themeQuery = `${colorQuery} (o:landfall OR o:"play an additional land" OR o:"lands you control") -t:land legal:commander order:edhrec`;
+                const themeKeywords = synergies.strategies.map(s => {
+                    const map: Record<string, string> = {
+                        'Aristocrats': '(o:sacrifice OR o:die)',
+                        'Tokens': '(o:token OR o:create)',
+                        'Artifacts': 't:artifact',
+                        'Enchantments': 't:enchantment',
+                        'Spellslinger': '(t:instant OR t:sorcery)',
+                        'Counters': 'o:counter',
+                        'Lifegain': 'o:life o:gain',
+                        'LandMatters': '(o:landfall OR o:"play an additional land" OR o:"lands you control")'
+                    };
+                    return map[s] || '';
+                }).filter(Boolean).join(' OR ');
+
+                const themeQuery = `${colorQuery} (${themeKeywords}) -t:land legal:commander order:edhrec`;
                 const themeResp = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(themeQuery)}&page=1`);
 
                 if (themeResp.ok) {
                     const themeData = await themeResp.json();
-                    const topSynergyCards = themeData.data.slice(0, 20); // Top 20 synergy cards
+                    const topSynergyCards = themeData.data.slice(0, 30);
 
-                    // Separation: Owned vs Missing
                     const ownedSynergy: CollectionCard[] = [];
                     const missingSynergy: ScryfallCard[] = [];
 
                     topSynergyCards.forEach((scryCard: ScryfallCard) => {
-                        // Check if we own it
-                        // Variety Fix: Pick a random version if multiple exist in eligible
                         const ownedVersions = eligible.filter((c: CollectionCard) => c.name === scryCard.name);
-
                         if (ownedVersions.length > 0) {
-                            const randomOwned = ownedVersions[Math.floor(Math.random() * ownedVersions.length)];
-                            ownedSynergy.push(randomOwned);
-                        } else {
-                            // If missing, check if it's not the commander
-                            if (!allCommanderNames.includes(scryCard.name)) {
-                                missingSynergy.push(scryCard);
-                            }
+                            ownedSynergy.push(ownedVersions[Math.floor(Math.random() * ownedVersions.length)]);
+                        } else if (!allCommanderNames.includes(scryCard.name)) {
+                            missingSynergy.push(scryCard);
                         }
                     });
 
-                    // A. Add OWNED synergy cards first (Priority 1)
-                    const addedCount = addUniqueCards(ownedSynergy, 15);
-                    console.log(`Added ${addedCount} owned key synergy cards`);
+                    const addedCount = addUniqueCards(ownedSynergy, 20);
+                    console.log(`Added ${addedCount} owned theme synergy cards`);
 
-                    // B. Suggest Missing Synergy Cards
                     let addedMissing = 0;
                     for (const missing of missingSynergy) {
-                        if (addedMissing >= 5) break;
-                        // Suggest if we need to fill space OR just as a suggestion regardless?
-                        // Let's add them to deck list ONLY if we have space, effectively treating them as "High Quality Fillers"
+                        if (addedMissing >= 10) break;
                         if (cardNames.length < MAX_NON_LANDS && !cardNames.includes(missing.name)) {
                             cardNames.push(missing.name);
-                            suggestedDetails.push(missing); // Identify as suggestion
+                            suggestedDetails.push(missing);
                             addedMissing++;
                         }
                     }
-                    console.log(`Suggested ${addedMissing} missing key synergy cards`);
+                    console.log(`Suggested ${addedMissing} missing theme synergy cards`);
                 }
-            } catch (e) {
-                console.error("Failed to fetch strategy cards", e);
-            }
+            } catch (e) { console.error("Failed to fetch strategy cards", e); }
         }
 
         // 3. Add Synergy NON-LAND cards from Collection (Secondary Priority)
@@ -319,16 +443,34 @@ export async function POST(req: NextRequest) {
         const other = uniqueEligible.filter(c => !cardNames.includes(c.name) && !c.details?.type_line?.includes('Land'));
         addUniqueCards(other, MAX_NON_LANDS - cardNames.length); // Attempt to fill to cap
 
-        // 6. Suggest Scryfall fillers (Only if we REALLY still have space)
+        // 6. Suggest Scryfall fillers (Themed)
         if (cardNames.length < MAX_NON_LANDS) {
             const need = MAX_NON_LANDS - cardNames.length;
-            const colorQuery = commanderColors.length === 0 ? "id:c" : `id<=${commanderColors.join("")}`;
-            // Use EDHREC rank order for better quality fillers
-            const scryQuery = `${colorQuery} -t:basic f:commander legal:commander usd<=2`;
+
+            // Build themed filler query
+            const themeKeywords = synergies.strategies.map(s => {
+                const map: Record<string, string> = {
+                    'Aristocrats': '(o:sacrifice OR o:die)',
+                    'Tokens': '(o:token OR o:create)',
+                    'Artifacts': 't:artifact',
+                    'Enchantments': 't:enchantment',
+                    'Spellslinger': '(t:instant OR t:sorcery)',
+                    'Counters': 'o:counter',
+                    'Lifegain': 'o:life o:gain',
+                    'LandMatters': '(o:landfall OR o:"play an additional land")'
+                };
+                return map[s] || '';
+            }).filter(Boolean).join(' OR ');
+
+            const subtypeQuery = synergies.creatureTypes.map(t => `t:${t}`).join(' OR ');
+            const themePart = [themeKeywords, subtypeQuery].filter(Boolean).map(p => `(${p})`).join(' OR ');
+
+            const scryQuery = themePart
+                ? `${colorQuery} (${themePart}) -t:basic f:commander legal:commander usd<=5`
+                : `${colorQuery} -t:basic f:commander legal:commander usd<=2`;
 
             try {
                 const resp = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(scryQuery)}&order=edhrec&dir=asc&page=1`);
-
                 if (resp.ok) {
                     const data: { data: ScryfallCard[] } = await resp.json();
                     const suggestions = data.data
@@ -344,8 +486,26 @@ export async function POST(req: NextRequest) {
                         suggestedDetails.push(c);
                     });
                 }
-            } catch (e) {
-                console.error("Failed to fetch filler suggestions", e);
+            } catch (e) { console.error("Failed to fetch filler suggestions", e); }
+        }
+
+        // Density Check: Ensure enough sacrifice outlets for Aristocrats
+        if (synergies.strategies.includes('Aristocrats')) {
+            const currentOutlets = cardNames.filter(n => {
+                const c = uniqueEligible.find(x => x.name === n);
+                const oracleText = c?.details?.oracle_text?.toLowerCase() || '';
+                return oracleText.includes('sacrifice a creature') || oracleText.includes('sacrifice another creature') || oracleText.includes('sacrifice a permanent');
+            }).length;
+
+            if (currentOutlets < 12) {
+                const extraNeeded = 12 - currentOutlets;
+                const availableOutlets = uniqueEligible.filter(c =>
+                    !cardNames.includes(c.name) &&
+                    isCardRelevant(c.details) &&
+                    (c.details?.oracle_text?.toLowerCase().includes('sacrifice a creature') ||
+                        c.details?.oracle_text?.toLowerCase().includes('sacrifice another creature'))
+                );
+                addUniqueCards(availableOutlets, extraNeeded);
             }
         }
 
@@ -430,10 +590,14 @@ export async function POST(req: NextRequest) {
             deckName: `Auto-built ${allCommanderNames.join(' & ')} deck`,
             cardNames, // Keep for compatibility
             cardIds: cardNames.map(name => {
-                // Find a version in eligible
-                const versions = eligible.filter(c => c.name === name);
+                const versions = eligible.filter((c: CollectionCard) => c.name === name);
                 return versions.length > 0 ? versions[Math.floor(Math.random() * versions.length)].scryfallId : null;
-            }).filter(Boolean),
+            }).filter((id): id is string => id !== null),
+            deckList: cardNames.map(name => {
+                const versions = eligible.filter((c: CollectionCard) => c.name === name);
+                const ownedId = versions.length > 0 ? versions[Math.floor(Math.random() * versions.length)].scryfallId : null;
+                return { name, scryfallId: ownedId };
+            }),
             suggestedDetails,
             deckUrl: `https://edhrec.com/commanders/${allCommanderNames[0].toLowerCase().replace(/[^a-z0-9]+/g, "-")}`,
         });
