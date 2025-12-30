@@ -1,8 +1,8 @@
 'use client';
 
 import { useState } from 'react';
-import { CollectionCard, Deck } from '@/lib/types';
-import { Trash2, Download, Save } from 'lucide-react';
+import { CollectionCard, Deck, CardAvailability } from '@/lib/types';
+import { Trash2, Download, Save, AlertTriangle } from 'lucide-react';
 
 import { SaltMeter } from './SaltMeter';
 
@@ -14,9 +14,19 @@ interface DeckSidebarProps {
     onClearDeck: () => void;
     onSave: () => void;
     isSaving?: boolean;
+    availabilityMap?: Record<string, CardAvailability>;
 }
 
-export function DeckSidebar({ deck, onRemoveCard, onRemoveCommander, onRemoveMissingCard, onClearDeck, onSave, isSaving }: DeckSidebarProps) {
+export function DeckSidebar({
+    deck,
+    onRemoveCard,
+    onRemoveCommander,
+    onRemoveMissingCard,
+    onClearDeck,
+    onSave,
+    isSaving,
+    availabilityMap
+}: DeckSidebarProps) {
     const [hoveredCard, setHoveredCard] = useState<CollectionCard | null>(null);
     const totalCards = deck.cards.reduce((acc, card) => acc + 1, 0) + (deck.commanders?.length || 0);
 
@@ -151,24 +161,34 @@ export function DeckSidebar({ deck, onRemoveCard, onRemoveCommander, onRemoveMis
                                     <span>{cards.length}</span>
                                 </h3>
                                 <ul className="space-y-1">
-                                    {Object.entries(cardsByName).map(([name, instances]) => (
-                                        <li
-                                            key={name}
-                                            className="group flex items-center justify-between text-sm text-slate-300 hover:bg-slate-800/50 p-1 rounded cursor-default relative"
-                                            onMouseEnter={() => setHoveredCard(instances[0])}
-                                            onMouseLeave={() => setHoveredCard(null)}
-                                        >
-                                            <span className="truncate flex-1">
-                                                {name} {instances.length > 1 && <span className="text-slate-500 ml-1">x{instances.length}</span>}
-                                            </span>
-                                            <button
-                                                onClick={() => onRemoveCard(instances[0])}
-                                                className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-all px-1"
+                                    {Object.entries(cardsByName).map(([name, instances]) => {
+                                        const card = instances[0];
+                                        const quantityInDeck = instances.length;
+
+                                        return (
+                                            <li
+                                                key={name}
+                                                className="group flex items-center justify-between text-sm text-slate-300 hover:bg-slate-800/50 p-1 rounded cursor-default relative"
+                                                onMouseEnter={() => setHoveredCard(card)}
+                                                onMouseLeave={() => setHoveredCard(null)}
                                             >
-                                                <Trash2 className="w-3 h-3" />
-                                            </button>
-                                        </li>
-                                    ))}
+                                                <span className="truncate flex-1 flex items-center gap-2">
+                                                    {name} {quantityInDeck > 1 && <span className="text-slate-500 ml-1">x{quantityInDeck}</span>}
+                                                    {availabilityMap && availabilityMap[name] && availabilityMap[name].available < 0 && (
+                                                        <span title={`Missing ${Math.abs(availabilityMap[name].available)} copies (already used in other decks)`}>
+                                                            <AlertTriangle className="w-3 h-3 text-amber-500" />
+                                                        </span>
+                                                    )}
+                                                </span>
+                                                <button
+                                                    onClick={() => onRemoveCard(card)}
+                                                    className="opacity-0 group-hover:opacity-100 text-slate-500 hover:text-red-400 transition-all px-1"
+                                                >
+                                                    <Trash2 className="w-3 h-3" />
+                                                </button>
+                                            </li>
+                                        );
+                                    })}
                                 </ul>
                             </div>
                         );

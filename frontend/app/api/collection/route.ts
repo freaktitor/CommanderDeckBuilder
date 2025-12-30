@@ -18,26 +18,51 @@ export async function GET() {
         }
 
         // Fetch collection for this user with joined card metadata
-        const { data, error } = await supabaseAdmin
-            .from('collections')
-            .select(`
-                quantity,
-                card_id,
-                card_cache (
-                    id,
-                    name,
-                    type_line,
-                    oracle_text,
-                    color_identity,
-                    image_url,
-                    mana_cost,
-                    cmc
-                )
-            `)
-            .eq('user_id', userEmail);
+        // Note: Supabase often caps responses at 1000 rows, so we paginate to be safe.
+        let allData: any[] = [];
+        let from = 0;
+        const PAGE_SIZE = 1000;
+        let hasMore = true;
 
-        if (error) throw error;
-        if (!data) return NextResponse.json({ collection: [] });
+        while (hasMore) {
+            const { data, error } = await supabaseAdmin
+                .from('collections')
+                .select(`
+                    quantity,
+                    card_id,
+                    card_cache (
+                        id,
+                        name,
+                        type_line,
+                        oracle_text,
+                        color_identity,
+                        image_url,
+                        mana_cost,
+                        cmc,
+                        prices,
+                        rarity,
+                        set_name,
+                        set,
+                        keywords
+                    )
+                `)
+                .eq('user_id', userEmail)
+                .range(from, from + PAGE_SIZE - 1);
+
+            if (error) throw error;
+            if (!data || data.length === 0) {
+                hasMore = false;
+            } else {
+                allData = [...allData, ...data];
+                if (data.length < PAGE_SIZE) {
+                    hasMore = false;
+                } else {
+                    from += PAGE_SIZE;
+                }
+            }
+        }
+
+        const data = allData;
 
         // Map it back to our CollectionCard format
         const collection = data.map(item => {
@@ -56,6 +81,11 @@ export async function GET() {
                     color_identity: cache.color_identity,
                     cmc: cache.cmc,
                     mana_cost: cache.mana_cost,
+                    prices: cache.prices,
+                    rarity: cache.rarity,
+                    set_name: cache.set_name,
+                    set: cache.set,
+                    keywords: cache.keywords,
                     image_uris: {
                         normal: cache.image_url,
                         small: cache.image_url,
@@ -68,7 +98,8 @@ export async function GET() {
             };
         }).filter(Boolean);
 
-        return NextResponse.json({ collection });
+        console.log(`[Collection] Returning ${collection.length} cards for ${userEmail} (Raw: ${data.length})`);
+        return NextResponse.json({ collection, total: collection.length, rawTotal: data.length });
     } catch (error) {
         console.error('Error reading collection from Supabase:', error);
         return NextResponse.json({ collection: [] });

@@ -3,14 +3,15 @@
 import { useState, useEffect, useMemo, Suspense, useRef } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { useSession, signIn, signOut } from "next-auth/react";
-import { CollectionCard, Deck, ScryfallCard } from '@/lib/types';
+import { CollectionCard, Deck, ScryfallCard, CardAvailability } from '@/lib/types';
 import { ColorPicker } from '@/components/ColorPicker';
 import { CardGrid } from '@/components/CardGrid';
 import { DeckSidebar } from '@/components/DeckSidebar';
 import { GoldfishModal } from '@/components/GoldfishModal';
-import { ArrowLeft, Filter, Search, Sparkles, Dices, Hand, Package } from 'lucide-react';
+import { ArrowLeft, Filter, Search, Sparkles, Hand, Package } from 'lucide-react';
 import { TopBar } from '@/components/TopBar';
 
+import { AlertModal } from '@/components/AlertModal';
 import { API_BASE_URL } from '@/lib/api';
 
 function BuilderContent() {
@@ -25,21 +26,155 @@ function BuilderContent() {
     const [activeTab, setActiveTab] = useState<'commander' | 'library'>('commander');
     const [isAutoBuilding, setIsAutoBuilding] = useState(false);
     const [isGoldfishOpen, setIsGoldfishOpen] = useState(false);
-    const [chaosLoading, setChaosLoading] = useState(false);
     const [isSavingDeck, setIsSavingDeck] = useState(false);
+    const [isAutoBuilt, setIsAutoBuilt] = useState(false);
+
     const hasLoadedDeck = useRef(false);
+    const [savedDecks, setSavedDecks] = useState<any[]>([]);
+
+    const fetchDecks = async () => {
+        try {
+            const res = await fetch(`${API_BASE_URL}/decks`);
+            if (res.ok) {
+                const { decks } = await res.json();
+                setSavedDecks(decks || []);
+            }
+        } catch (e) {
+            console.error('Failed to fetch decks for availability', e);
+        }
+    };
+
+    // Load saved decks to track availability
+    useEffect(() => {
+        fetchDecks();
+    }, []);
+
+    // Calculate Availability Map
+    const availabilityMap = useMemo(() => {
+        const map: Record<string, CardAvailability> = {};
+
+        // 1. Initial collection counts
+        collection.forEach(card => {
+            if (!map[card.name]) {
+                map[card.name] = { total: 0, used: 0, available: 0 };
+            }
+            map[card.name].total += card.quantity;
+        });
+
+        // 2. Used in OTHER decks
+        savedDecks.forEach(d => {
+            // Skip the current deck being edited
+            if (deckId && d.id === deckId) return;
+
+            // Database uses 'card_ids' and 'commander_ids'
+            const cards = d.card_ids || [];
+            const commanderIds = d.commander_ids || [];
+
+            // Track used names in THIS saved deck
+            const usedInThisDeck = new Set<string>();
+
+            // Account for library cards (full objects stored in card_ids JSONB)
+            cards.forEach((c: CollectionCard) => {
+                if (!usedInThisDeck.has(c.name)) {
+                    if (!map[c.name]) map[c.name] = { total: 0, used: 0, available: 0 };
+                    map[c.name].used += 1;
+                    usedInThisDeck.add(c.name);
+                }
+            });
+
+            // Account for commanders (only have IDs normally, we need names)
+            // But wait, the user's collection has these cards.
+            // Let's try to match IDs back to names using the collection.
+            commanderIds.forEach((id: string) => {
+                const found = collection.find(cc => cc.scryfallId === id);
+                if (found && !usedInThisDeck.has(found.name)) {
+                    if (!map[found.name]) map[found.name] = { total: 0, used: 0, available: 0 };
+                    map[found.name].used += 1;
+                    usedInThisDeck.add(found.name);
+                }
+            });
+        });
+
+        // 3. Used in CURRENT deck
+        const usedInCurrentDeck = new Set<string>();
+        (deck.commanders || []).forEach(c => {
+            if (!usedInCurrentDeck.has(c.name)) {
+                if (!map[c.name]) map[c.name] = { total: 0, used: 0, available: 0 };
+                map[c.name].used += 1;
+                usedInCurrentDeck.add(c.name);
+            }
+        });
+        deck.cards.forEach(c => {
+            // For basic lands, availability is usually infinite or not a concern, 
+            // but let's follow the collection strictly if they're there.
+            // If it's a basic land, we might want to skip usage tracking if we don't care.
+            const isBasic = c.details?.type_line?.includes('Basic Land');
+            if (!isBasic) {
+                if (!usedInCurrentDeck.has(c.name)) {
+                    if (!map[c.name]) map[c.name] = { total: 0, used: 0, available: 0 };
+                    map[c.name].used += 1;
+                    usedInCurrentDeck.add(c.name);
+                }
+            }
+        });
+
+        // 4. Calculate final availability
+        Object.keys(map).forEach(name => {
+            map[name].available = map[name].total - map[name].used;
+        });
+
+        return map;
+    }, [collection, savedDecks, deck, deckId]);
+
+    // ... Alert State ...
+
+
+
+    // ... existing code ...
+
+
+    const [alertState, setAlertState] = useState<{
+        isOpen: boolean;
+        title: string;
+        message: string;
+        type: 'success' | 'error' | 'info';
+        showCancel?: boolean;
+        onConfirm?: () => void;
+        confirmLabel?: string;
+    }>({
+        isOpen: false,
+        title: '',
+        message: '',
+        type: 'info'
+    });
+
+    const showAlert = (title: string, message: string, type: 'success' | 'error' | 'info' = 'info') => {
+        setAlertState({ isOpen: true, title, message, type, showCancel: false });
+    };
+
+    const showConfirm = (title: string, message: string, onConfirm: () => void) => {
+        setAlertState({
+            isOpen: true,
+            title,
+            message,
+            type: 'info',
+            showCancel: true,
+            onConfirm,
+            confirmLabel: 'Clear Deck'
+        });
+    };
 
     const handleSaveDeck = async () => {
         console.log('[Save] handleSaveDeck initiated. isUpdate:', !!deckId, 'deckId:', deckId);
 
         if (!session && process.env.NODE_ENV !== 'development') {
-            alert('Please sign in to save your deck!');
+            showAlert('Sign In Required', 'Please sign in to save your deck!', 'error');
             return;
         }
 
         if (!deck.commanders || deck.commanders.length === 0) {
             console.log('[Save] Aborted: No commander selected');
-            alert('Please select a commander first!');
+            showAlert('Commander Missing', 'Please select a commander first!', 'error');
             return;
         }
 
@@ -77,6 +212,9 @@ function BuilderContent() {
                 const data = await res.json();
                 console.log('[Save] Request successful:', data);
 
+                // Refresh decks list to update availability maps
+                await fetchDecks();
+
                 if (!isUpdate && data.deck?.id) {
                     console.log('[Save] New deck created, updating URL to deckId:', data.deck.id);
                     hasLoadedDeck.current = true;
@@ -84,7 +222,7 @@ function BuilderContent() {
                     router.replace(`/builder?deckId=${data.deck.id}`);
                 }
 
-                alert(isUpdate ? 'Deck updated successfully!' : 'Deck saved successfully!');
+                showAlert('Success', isUpdate ? 'Deck updated successfully!' : 'Deck saved successfully!', 'success');
             } else {
                 const err = await res.json();
                 console.error('[Save] Request failed:', err);
@@ -99,18 +237,22 @@ function BuilderContent() {
     };
 
     const handleResetWorkspace = () => {
-        console.log('[Reset] handleResetWorkspace initiated');
-        if (confirm('Are you sure you want to clear this workspace and start a fresh deck?')) {
-            // 1. Clear State
-            setDeck({ commanders: [], cards: [], colors: [], missingCards: [] });
-            setActiveTab('commander');
-            setSelectedColors([]);
-            hasLoadedDeck.current = false;
+        showConfirm(
+            'Clear Workspace',
+            'Are you sure you want to clear this workspace and start a fresh deck? This action cannot be undone.',
+            () => {
+                console.log('[Reset] Clearing workspace verified');
+                // 1. Clear State
+                setDeck({ commanders: [], cards: [], colors: [], missingCards: [] });
+                setActiveTab('commander');
+                setSelectedColors([]);
+                hasLoadedDeck.current = false;
 
-            // 2. Clear URL - Use router.replace to /builder to remove ?deckId=...
-            console.log('[Reset] Clearing URL and redirecting to /builder');
-            router.replace('/builder');
-        }
+                // 2. Clear URL
+                console.log('[Reset] Clearing URL and redirecting to /builder');
+                router.replace('/builder');
+            }
+        );
     };
 
     // Load collection on mount
@@ -196,7 +338,7 @@ function BuilderContent() {
         // 1. Filter by Search
         if (searchQuery) {
             const q = searchQuery.toLowerCase();
-            filtered = filtered.filter(c => c.name.toLowerCase().includes(q) || c.details?.type_line.toLowerCase().includes(q));
+            filtered = filtered.filter(c => c.name.toLowerCase().includes(q));
         }
 
         // 2. Filter by Mode (Commander vs Library)
@@ -260,13 +402,7 @@ function BuilderContent() {
                 return true;
             });
 
-            const uniqueCommanders = new Map();
-            potentialCommanders.forEach(c => {
-                if (!uniqueCommanders.has(c.name)) {
-                    uniqueCommanders.set(c.name, c);
-                }
-            });
-            return Array.from(uniqueCommanders.values());
+            return potentialCommanders;
         } else {
             // Library Mode
             if (!deck.commanders || deck.commanders.length === 0) return []; // Need commander first
@@ -277,12 +413,12 @@ function BuilderContent() {
                 // Exclude if it is one of the commanders
                 if (deck.commanders?.some(cmdr => cmdr.name === c.name)) return false;
 
-                // Exclude cards already in deck (Singleton Rule by Name)
+                // Exclude cards already in deck (by specific card instance/ID)
                 // Exception: Basic Lands
                 const isBasicLand = c.details?.type_line?.includes('Basic Land');
 
                 if (!isBasicLand) {
-                    const alreadyInDeck = deck.cards.some(dc => dc.name === c.name);
+                    const alreadyInDeck = deck.cards.some(dc => dc.scryfallId === c.scryfallId);
                     if (alreadyInDeck) return false;
                 }
 
@@ -376,7 +512,8 @@ function BuilderContent() {
 
     const handleAutoBuild = async () => {
         if (!deck.commanders || deck.commanders.length === 0) return;
-        const commanderName = deck.commanders[0].name;
+        // Send all commander names for partner support
+        const commanderNames = deck.commanders.map(c => c.name);
 
         setIsAutoBuilding(true);
         try {
@@ -384,7 +521,8 @@ function BuilderContent() {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                    commanderName: commanderName,
+                    commanderNames: commanderNames, // Send array of all commanders
+                    commanderName: commanderNames[0], // Backwards compatibility
                     collection: collection
                 }),
             });
@@ -394,94 +532,58 @@ function BuilderContent() {
             }
 
             const data = await response.json();
-            const { cardNames, suggestedDetails = [] } = data;
+            const { cardNames = [], cardIds = [], suggestedDetails = [] } = data;
 
             const addedCards: CollectionCard[] = [];
             const missing: ScryfallCard[] = [];
 
-            // Track added counts to handle basic lands and singleton enforcement
-            const addedCounts: Record<string, number> = {};
-
-            // Match suggested cards with collection
-            cardNames.forEach((cardName: string) => {
-                const isBasicLand = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'].includes(cardName);
-
-                // If not basic land and already added, skip (enforce singleton for non-basics)
-                if (!isBasicLand && addedCounts[cardName]) return;
-
-                const cardInCollection = collection.find(
-                    c => c.name.toLowerCase() === cardName.toLowerCase()
-                );
-
-                if (cardInCollection) {
-                    // Check if already in deck (for non-basics)
-                    const alreadyInDeck = deck.cards.some(dc => dc.name === cardInCollection.name);
-
-                    if (isBasicLand || !alreadyInDeck) {
-                        // For basic lands, we can add multiple. For others, just one.
-                        // If we are adding a basic land from collection, we clone it to ensure unique IDs if needed, 
-                        // or just reuse if we don't care about unique IDs for collection items (but we should for React keys)
-                        // Better to create a copy for the deck.
+            // 1. Process specific versions from cardIds if available
+            if (cardIds.length > 0) {
+                cardIds.forEach((id: string) => {
+                    const cardInCollection = collection.find(c => c.scryfallId === id);
+                    if (cardInCollection) {
+                        const isBasicLand = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'].includes(cardInCollection.name);
                         addedCards.push({
                             ...cardInCollection,
                             scryfallId: isBasicLand ? `${cardInCollection.scryfallId}-${Math.random()}` : cardInCollection.scryfallId
                         });
-                        addedCounts[cardName] = (addedCounts[cardName] || 0) + 1;
-                    }
-                } else {
-                    // Find details in suggestedDetails
-                    const details = suggestedDetails.find((d: ScryfallCard) => d.name === cardName);
-                    if (details) {
-                        missing.push(details);
-                        addedCounts[cardName] = (addedCounts[cardName] || 0) + 1;
-                    } else if (isBasicLand) {
-                        // Generate dummy basic land
-                        const basicMap: Record<string, string> = {
-                            'Plains': 'W', 'Island': 'U', 'Swamp': 'B', 'Mountain': 'R', 'Forest': 'G', 'Wastes': 'C'
-                        };
-                        const color = basicMap[cardName] || 'C';
-
-                        addedCards.push({
-                            quantity: 1,
-                            name: cardName,
-                            scryfallId: `basic-${cardName}-${Math.random()}`,
-                            details: {
-                                id: `basic-${cardName}-dummy`,
-                                name: cardName,
-                                cmc: 0,
-                                type_line: `Basic Land — ${cardName}`,
-                                color_identity: [color],
-                                rarity: 'common',
-                                set_name: 'Basic Lands',
-                                set: 'basic',
-                                collector_number: '0',
-                                image_uris: {
-                                    small: `https://cards.scryfall.io/large/front/dummy/${cardName.toLowerCase()}.jpg`, // Placeholder, won't load but prevents crash
-                                    normal: `https://cards.scryfall.io/large/front/dummy/${cardName.toLowerCase()}.jpg`,
-                                    large: '',
-                                    png: '',
-                                    art_crop: '',
-                                    border_crop: ''
-                                }
-                            } as ScryfallCard
-                        });
-                        addedCounts[cardName] = (addedCounts[cardName] || 0) + 1;
                     } else {
-                        console.warn(`No details found for missing card: ${cardName}`);
+                        // If not in collection, it's missing
+                        const details = suggestedDetails.find((d: ScryfallCard) => d.id === id);
+                        if (details) {
+                            missing.push(details);
+                        }
                     }
-                }
-            });
+                });
+            } else {
+                // 2. Legacy fallback for old API or if cardIds is empty
+                cardNames.forEach((cardName: string) => {
+                    const isBasicLand = ['Plains', 'Island', 'Swamp', 'Mountain', 'Forest', 'Wastes'].includes(cardName);
+                    const cardInCollection = collection.find(c => c.name.toLowerCase() === cardName.toLowerCase());
+
+                    if (cardInCollection) {
+                        addedCards.push({
+                            ...cardInCollection,
+                            scryfallId: isBasicLand ? `${cardInCollection.scryfallId}-${Math.random()}` : cardInCollection.scryfallId
+                        });
+                    } else {
+                        const details = suggestedDetails.find((d: ScryfallCard) => d.name === cardName);
+                        if (details) missing.push(details);
+                    }
+                });
+            }
 
             // Update deck with new cards and missing list
             setDeck(prev => ({
                 ...prev,
-                cards: [...prev.cards, ...addedCards],
-                missingCards: missing,
+                cards: addedCards,
+                missingCards: missing
             }));
+            setIsAutoBuilt(true);
 
         } catch (error) {
             console.error('Auto-build failed:', error);
-            alert('Failed to auto-build deck. Please try again.');
+            showAlert('Auto-Build Failed', 'Failed to auto-build deck. Please try again.', 'error');
         } finally {
             setIsAutoBuilding(false);
         }
@@ -490,33 +592,32 @@ function BuilderContent() {
     const handleBalanceDeck = () => {
         if (!deck.commanders || deck.commanders.length === 0) return;
 
-        const TARGET_LANDS = 35;
-        const TARGET_TOTAL = 99; // 99 + 1 commander = 100
+        const missingCards = deck.missingCards || [];
 
-        // Separate lands from non-lands in current deck
-        const currentLands = deck.cards.filter(c => c.details?.type_line?.includes('Land'));
-
-        // Calculate needs
-        const landsNeeded = Math.max(0, TARGET_LANDS - currentLands.length);
-        const totalSlotsAvailable = TARGET_TOTAL - deck.cards.length;
-
-        // Get available cards from collection
-        const commanderIdentity = deck.colors || [];
-
-        console.log('Balance Deck Debug:', {
-            currentLandsCount: currentLands.length,
-            currentTotalCards: deck.cards.length,
-            landsNeeded,
-            totalSlotsAvailable,
-            commanderIdentity
-        });
-
-        if (totalSlotsAvailable <= 0) {
-            alert("Deck is already full!");
+        if (missingCards.length === 0) {
+            showAlert('Deck Complete', "No missing cards to replace! Your deck is already complete.", 'success');
             return;
         }
 
-        // Helper to check relevance
+        const commanderIdentity = deck.colors || [];
+        const commanderCount = deck.commanders?.length || 1;
+        const TARGET_TOTAL = 100 - commanderCount; // 99 for 1 commander, 98 for 2 partners
+        const currentDeckSize = deck.cards.length;
+        const slotsAvailable = Math.max(0, TARGET_TOTAL - currentDeckSize);
+
+        console.log('Balance Deck - Replacing missing cards:', {
+            missingCount: missingCards.length,
+            currentDeckSize,
+            slotsAvailable,
+            commanderIdentity
+        });
+
+        if (slotsAvailable === 0) {
+            showAlert('Deck Full', "Your deck is already at 100 cards! Remove some cards first if you want to add replacements.", 'info');
+            return;
+        }
+
+        // Helper to check relevance (exclude cards that reference off-color)
         const isCardRelevant = (card: CollectionCard) => {
             let text = card.details?.oracle_text || "";
             if (!text && card.details?.card_faces) {
@@ -549,30 +650,59 @@ function BuilderContent() {
             return true;
         };
 
+        // Get available cards from collection (not in deck, matches color identity)
         const availableCards = collection.filter(c => {
-            // Allow basic lands even if already in deck (infinite supply)
-            const isBasicLand = c.details?.type_line?.includes('Basic Land');
-            if (!isBasicLand && deck.cards.some(dc => dc.name === c.name)) return false;
+            // Exclude cards already in deck (by name for singleton)
+            if (deck.cards.some(dc => dc.name === c.name)) return false;
+            // Exclude commanders
             if (deck.commanders?.some(cmdr => cmdr.name === c.name)) return false;
+            // Exclude basic lands (we handle those separately)
+            if (c.details?.type_line?.includes('Basic Land')) return false;
+            // Color identity check
             const identity = c.details?.color_identity || [];
             if (!identity.every(color => commanderIdentity.includes(color))) return false;
+            // Relevance check
             if (!isCardRelevant(c)) return false;
             return true;
         });
 
-        // Deduplicate available cards (but NOT basic lands)
+        // Deduplicate available cards by name
         const uniqueAvailable = Array.from(
-            new Map(
-                availableCards
-                    .filter(c => !c.details?.type_line?.includes('Basic Land'))
-                    .map(c => [c.name, c])
-            ).values()
+            new Map(availableCards.map(c => [c.name, c])).values()
         );
 
-        const availableNonBasicLands = uniqueAvailable.filter(c => c.details?.type_line?.includes('Land'));
-        const availableNonLands = uniqueAvailable.filter(c => !c.details?.type_line?.includes('Land'));
+        // Helper to categorize a card
+        const getCardCategory = (typeLine: string, name: string, oracleText: string = ""): string => {
+            const t = typeLine.toLowerCase();
+            const n = name.toLowerCase();
+            const o = oracleText.toLowerCase();
 
-        // Sort non-lands by rarity
+            if (t.includes('land')) return 'land';
+            if (t.includes('creature')) return 'creature';
+            if ((t.includes('instant') || t.includes('sorcery')) &&
+                /destroy|exile|kill|damage|wrath|damnation|wipe|murder|terminate/.test(n + o)) return 'removal';
+            if (/(artifact|enchantment|sorcery)/.test(t) &&
+                /(mana|ramp|cultivate|kodama|signet|talisman|sol ring|arcane|fellwar)/.test(n)) return 'ramp';
+            if (/(draw|rhystic|study|mystic|remora|arena|necropotence|library|divination)/.test(n + o)) return 'draw';
+            if (t.includes('instant') || t.includes('sorcery')) return 'spell';
+            if (t.includes('artifact')) return 'artifact';
+            if (t.includes('enchantment')) return 'enchantment';
+            return 'other';
+        };
+
+        // Categorize available cards
+        const availableByCategory: Record<string, CollectionCard[]> = {};
+        uniqueAvailable.forEach(c => {
+            const category = getCardCategory(
+                c.details?.type_line || '',
+                c.name,
+                c.details?.oracle_text || ''
+            );
+            if (!availableByCategory[category]) availableByCategory[category] = [];
+            availableByCategory[category].push(c);
+        });
+
+        // Sort each category by rarity (prefer higher rarity for replacements)
         const rarityScore = (rarity?: string) => {
             switch (rarity) {
                 case 'mythic': return 4;
@@ -581,130 +711,84 @@ function BuilderContent() {
                 default: return 1;
             }
         };
-        availableNonLands.sort((a, b) => rarityScore(b.details?.rarity) - rarityScore(a.details?.rarity));
+        Object.values(availableByCategory).forEach(cards => {
+            cards.sort((a, b) => rarityScore(b.details?.rarity) - rarityScore(a.details?.rarity));
+        });
 
-        const cardsToAdd: CollectionCard[] = [];
-        let slotsLeft = totalSlotsAvailable;
+        console.log('Available by category:', Object.fromEntries(
+            Object.entries(availableByCategory).map(([k, v]) => [k, v.length])
+        ));
 
-        // 1. Fill Lands First
-        // We want to add up to 'landsNeeded', but limited by 'slotsLeft'
-        const landsToAddCount = Math.min(landsNeeded, slotsLeft);
+        // Find replacements for missing cards (limited by available slots)
+        const replacements: CollectionCard[] = [];
+        const usedNames = new Set<string>();
+        let unreplaceableCount = 0;
 
-        console.log('Land filling:', { landsToAddCount, availableNonBasicLands: availableNonBasicLands.length });
+        for (const missingCard of missingCards) {
+            // Stop if we've filled all available slots
+            if (replacements.length >= slotsAvailable) {
+                console.log(`Reached slot limit (${slotsAvailable}), stopping replacements`);
+                break;
+            }
 
-        // Add a mix: up to 50% non-basic lands, rest basic lands
-        const maxNonBasics = Math.floor(landsToAddCount * 0.5); // 50% max non-basics
-        const nonBasicsToAdd = Math.min(maxNonBasics, availableNonBasicLands.length);
+            const category = getCardCategory(
+                missingCard.type_line || '',
+                missingCard.name,
+                missingCard.oracle_text || ''
+            );
 
-        // Add non-basic lands from collection
-        for (let i = 0; i < nonBasicsToAdd; i++) {
-            cardsToAdd.push(availableNonBasicLands[i]);
-        }
+            // Try to find a replacement in the same category
+            const candidates = availableByCategory[category] || [];
+            const replacement = candidates.find(c => !usedNames.has(c.name));
 
-        // Fill remaining land slots with Basics (infinite supply)
-        const landsStillNeeded = landsToAddCount - cardsToAdd.length;
-        console.log('Basic lands needed:', landsStillNeeded, 'Non-basics added:', nonBasicsToAdd);
-
-        if (landsStillNeeded > 0 && commanderIdentity.length > 0) {
-            const basicMap: Record<string, string> = {
-                W: "Plains",
-                U: "Island",
-                B: "Swamp",
-                R: "Mountain",
-                G: "Forest",
-            };
-
-            const perColor = Math.floor(landsStillNeeded / commanderIdentity.length);
-            let extra = landsStillNeeded % commanderIdentity.length;
-
-            console.log('Generating basics:', { perColor, extra, colors: commanderIdentity });
-
-            commanderIdentity.forEach(color => {
-                const count = perColor + (extra > 0 ? 1 : 0);
-                extra--;
-                const landName = basicMap[color];
-
-                console.log(`Adding ${count} ${landName}`);
-
-                const realLand = collection.find(c => c.name === landName && c.details?.type_line?.includes('Basic'));
-
-                for (let k = 0; k < count; k++) {
-                    cardsToAdd.push({
-                        quantity: 1,
-                        name: landName,
-                        scryfallId: `basic-${landName}-${Math.random()}`,
-                        details: realLand?.details || {
-                            id: `basic-${landName}-dummy`,
-                            name: landName,
-                            cmc: 0,
-                            type_line: `Basic Land — ${landName}`,
-                            color_identity: [color],
-                            rarity: 'common',
-                            set_name: 'Basic Lands',
-                            set: 'basic',
-                            collector_number: '0',
-                            image_uris: {
-                                small: '',
-                                normal: '',
-                                large: '',
-                                png: '',
-                                art_crop: '',
-                                border_crop: ''
-                            }
-                        } as ScryfallCard
-                    });
+            if (replacement) {
+                replacements.push(replacement);
+                usedNames.add(replacement.name);
+                console.log(`Replaced "${missingCard.name}" (${category}) with "${replacement.name}"`);
+            } else {
+                // Try to find ANY available card as fallback
+                const fallbackCategories = ['other', 'creature', 'spell', 'artifact', 'enchantment'];
+                let found = false;
+                for (const fallbackCategory of fallbackCategories) {
+                    if (found) break;
+                    const fallbackCandidates = availableByCategory[fallbackCategory] || [];
+                    const fallback = fallbackCandidates.find(c => !usedNames.has(c.name));
+                    if (fallback) {
+                        replacements.push(fallback);
+                        usedNames.add(fallback.name);
+                        console.log(`Replaced "${missingCard.name}" (${category}) with fallback "${fallback.name}" (${fallbackCategory})`);
+                        found = true;
+                    }
                 }
-            });
-        }
-
-        // Update slotsLeft
-        slotsLeft -= cardsToAdd.length;
-
-        // 2. Fill remaining slots with Non-Lands
-        if (slotsLeft > 0) {
-            for (let i = 0; i < Math.min(slotsLeft, availableNonLands.length); i++) {
-                cardsToAdd.push(availableNonLands[i]);
+                if (!found) {
+                    console.warn(`Could not find replacement for "${missingCard.name}" (${category})`);
+                    unreplaceableCount++;
+                }
             }
         }
 
-        console.log('Total cards to add:', cardsToAdd.length, 'Lands:', cardsToAdd.filter(c => c.details?.type_line?.includes('Land')).length);
+        if (replacements.length === 0) {
+            showAlert('No Matches', "No suitable replacements found in your collection. Try adding more cards manually.", 'error');
+            return;
+        }
 
-        // Update deck
+        // Update deck: add replacements and clear missing cards
         setDeck(prev => ({
             ...prev,
-            cards: [...prev.cards, ...cardsToAdd],
-            missingCards: []
+            cards: [...prev.cards, ...replacements],
+            missingCards: unreplaceableCount > 0
+                ? prev.missingCards?.slice(replacements.length) // Keep only the ones we couldn't replace
+                : []
         }));
 
-        alert(`Deck balanced! Added ${cardsToAdd.length} cards (${cardsToAdd.filter(c => c.details?.type_line?.includes('Land')).length} lands).`);
-    };
-
-    const handleChaosOrb = async () => {
-        if (!deck.commanders || deck.commanders.length === 0) return;
-        setChaosLoading(true);
-        try {
-            const colors = deck.colors.join('');
-            // If colorless, use id:c. Otherwise id:wubrg
-            const query = `commander:${colors || 'c'} (game:paper) -type:conspiracy -type:scheme -type:vanguard`;
-            const res = await fetch(`https://api.scryfall.com/cards/random?q=${encodeURIComponent(query)}`);
-            const card = await res.json();
-
-            if (card && card.id) {
-                addToDeck({
-                    name: card.name,
-                    quantity: 1,
-                    scryfallId: card.id,
-                    details: card
-                });
-                // alert(`The Chaos Orb summoned: ${card.name}!`);
-            }
-        } catch (e) {
-            console.error(e);
-            alert("The Chaos Orb fizzled...");
-        } finally {
-            setChaosLoading(false);
+        if (unreplaceableCount > 0) {
+            console.log(`Replaced ${replacements.length} missing cards. ${unreplaceableCount} could not be replaced.`);
+        } else {
+            console.log(`Successfully replaced all ${replacements.length} missing cards.`);
         }
     };
+
+
 
     const getThemeClass = () => {
         if (!deck.commanders || deck.commanders.length === 0) return "bg-slate-950";
@@ -865,17 +949,10 @@ function BuilderContent() {
                         </button>
                         <button
                             onClick={handleBalanceDeck}
-                            className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white px-6 py-3 rounded-full font-bold transition-all shadow-2xl hover:shadow-emerald-500/20 hover:-translate-y-1 border border-emerald-400/20 backdrop-blur-sm"
+                            disabled={!isAutoBuilt}
+                            className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white px-6 py-3 rounded-full font-bold transition-all shadow-2xl hover:shadow-emerald-500/20 hover:-translate-y-1 border border-emerald-400/20 backdrop-blur-sm disabled:opacity-50 disabled:cursor-not-allowed disabled:shadow-none disabled:hover:translate-y-0 disabled:from-emerald-900 disabled:to-teal-900"
                         >
                             Balance Deck
-                        </button>
-                        <button
-                            onClick={handleChaosOrb}
-                            disabled={chaosLoading}
-                            className="flex items-center gap-2 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 text-white px-4 py-3 rounded-full font-bold transition-all shadow-2xl hover:shadow-orange-500/20 hover:-translate-y-1 border border-orange-400/20 backdrop-blur-sm disabled:opacity-50"
-                            title="Add a random card (Chaos Orb)"
-                        >
-                            <Dices className={`w-5 h-5 ${chaosLoading ? 'animate-spin' : ''}`} />
                         </button>
                         <button
                             onClick={() => setIsGoldfishOpen(true)}
@@ -902,8 +979,20 @@ function BuilderContent() {
                 onClearDeck={handleResetWorkspace}
                 onSave={handleSaveDeck}
                 isSaving={isSavingDeck}
+                availabilityMap={availabilityMap}
             />
 
+
+            <AlertModal
+                isOpen={alertState.isOpen}
+                onClose={() => setAlertState(prev => ({ ...prev, isOpen: false }))}
+                title={alertState.title}
+                message={alertState.message}
+                type={alertState.type}
+                showCancel={alertState.showCancel}
+                onConfirm={alertState.onConfirm}
+                confirmLabel={alertState.confirmLabel}
+            />
 
             <GoldfishModal
                 isOpen={isGoldfishOpen}

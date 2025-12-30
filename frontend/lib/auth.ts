@@ -8,6 +8,10 @@ export const authOptions: NextAuthOptions = {
             clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
         }),
     ],
+    session: {
+        strategy: "jwt",
+        maxAge: 4 * 60 * 60, // 4 hours - session expires after 4 hours of inactivity
+    },
     callbacks: {
         session: async ({ session, token }) => {
             if (session.user) {

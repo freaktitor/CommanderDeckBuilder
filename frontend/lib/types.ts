@@ -54,10 +54,21 @@ export interface CollectionCard {
     details?: ScryfallCard;
 }
 
+export interface CardAvailability {
+    total: number;
+    used: number;
+    available: number;
+}
+
 export interface Deck {
+    id?: string;
+    name?: string;
     commander?: ScryfallCard;
     commanders?: ScryfallCard[];
     cards: CollectionCard[];
     colors: string[];
     missingCards?: ScryfallCard[]; // Cards not in collection
+    // Database fields returned by API
+    card_ids?: CollectionCard[];
+    commander_ids?: string[];
 }

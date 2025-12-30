@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { useRouter } from 'next/navigation';
-import { CollectionCard } from '@/lib/types';
+import { CollectionCard, Deck, CardAvailability, ScryfallCard } from '@/lib/types';
 import { CardGrid } from '@/components/CardGrid';
 import { ColorPicker } from '@/components/ColorPicker';
 import { Search, Filter, Package, ArrowDownUp, DollarSign, X } from 'lucide-react';
@@ -24,7 +24,60 @@ export default function CollectionPage() {
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [sortBy, setSortBy] = useState<'name' | 'cmc-asc' | 'cmc-desc' | 'price-desc' | 'price-asc'>('name');
     const [currency, setCurrency] = useState<'usd' | 'eur' | 'tix' | 'cad'>('usd');
+    const [savedDecks, setSavedDecks] = useState<Deck[]>([]);
     const [isInitialized, setIsInitialized] = useState(false);
+
+    // Load saved decks for availability
+    useEffect(() => {
+        const fetchDecks = async () => {
+            try {
+                const res = await fetch(`${API_BASE_URL}/decks`);
+                if (res.ok) {
+                    const { decks } = await res.json();
+                    setSavedDecks(decks || []);
+                }
+            } catch (e) {
+                console.error('Failed to fetch decks', e);
+            }
+        };
+        fetchDecks();
+    }, []);
+
+    const availabilityMap = useMemo(() => {
+        const map: Record<string, CardAvailability> = {};
+        collection.forEach(card => {
+            if (!map[card.name]) {
+                map[card.name] = { total: 0, used: 0, available: 0 };
+            }
+            map[card.name].total += card.quantity;
+        });
+        savedDecks.forEach(d => {
+            const usedInThisDeck = new Set<string>();
+            const cards: CollectionCard[] = d.card_ids || [];
+            const commanderIds: string[] = d.commander_ids || [];
+
+            cards.forEach(c => {
+                if (!usedInThisDeck.has(c.name)) {
+                    if (!map[c.name]) map[c.name] = { total: 0, used: 0, available: 0 };
+                    map[c.name].used += 1;
+                    usedInThisDeck.add(c.name);
+                }
+            });
+
+            commanderIds.forEach(id => {
+                const found = collection.find(cc => cc.scryfallId === id);
+                if (found && !usedInThisDeck.has(found.name)) {
+                    if (!map[found.name]) map[found.name] = { total: 0, used: 0, available: 0 };
+                    map[found.name].used += 1;
+                    usedInThisDeck.add(found.name);
+                }
+            });
+        });
+        Object.keys(map).forEach(name => {
+            map[name].available = map[name].total - map[name].used;
+        });
+        return map;
+    }, [collection, savedDecks]);
 
     // Initialize from localStorage
     useEffect(() => {
@@ -93,9 +146,7 @@ export default function CollectionPage() {
         if (searchQuery) {
             const q = searchQuery.toLowerCase();
             filtered = filtered.filter(c =>
-                c.name.toLowerCase().includes(q) ||
-                c.details?.type_line.toLowerCase().includes(q) ||
-                c.details?.oracle_text?.toLowerCase().includes(q)
+                c.name.toLowerCase().includes(q)
             );
         }
 
@@ -186,22 +237,31 @@ export default function CollectionPage() {
                 return (a.details?.cmc || 0) - (b.details?.cmc || 0);
             } else if (sortBy === 'cmc-desc') {
                 return (b.details?.cmc || 0) - (a.details?.cmc || 0);
-            } else if (sortBy === 'price-desc') {
+            } else if (sortBy.startsWith('price-')) {
                 const getPrice = (c: CollectionCard) => {
-                    const prices = c.details?.prices;
-                    if (!prices) return 0;
-                    if (currency === 'cad') return parseFloat(prices.usd || '0') * 1.4;
-                    return parseFloat(prices[currency as keyof typeof prices] || '0');
+                    const p = c.details?.prices;
+                    if (!p) return 0;
+
+                    let val: string | null = null;
+                    if (currency === 'usd' || currency === 'cad') val = p.usd || p.usd_foil;
+                    else if (currency === 'eur') val = p.eur || p.eur_foil;
+                    else if (currency === 'tix') val = p.tix;
+
+                    if (!val) return 0;
+                    const num = parseFloat(val);
+                    if (isNaN(num)) return 0;
+                    return currency === 'cad' ? num * 1.4 : num;
                 };
-                return getPrice(b) - getPrice(a);
-            } else if (sortBy === 'price-asc') {
-                const getPrice = (c: CollectionCard) => {
-                    const prices = c.details?.prices;
-                    if (!prices) return 0;
-                    if (currency === 'cad') return parseFloat(prices.usd || '0') * 1.4;
-                    return parseFloat(prices[currency as keyof typeof prices] || '0');
-                };
-                return getPrice(a) - getPrice(b);
+
+                const priceA = getPrice(a);
+                const priceB = getPrice(b);
+
+                // Handle missing prices: always push them to the end
+                if (priceA === 0 && priceB === 0) return a.name.localeCompare(b.name);
+                if (priceA === 0) return 1;
+                if (priceB === 0) return -1;
+
+                return sortBy === 'price-asc' ? priceA - priceB : priceB - priceA;
             }
             return 0;
         });
@@ -209,21 +269,7 @@ export default function CollectionPage() {
         return filtered;
     }, [collection, searchQuery, selectedColors, selectedTypes, selectedEffects, selectedSynergies, sortBy, currency]);
 
-    // Group cards by name and count quantities
-    const uniqueCards = useMemo(() => {
-        const cardMap = new Map<string, CollectionCard & { totalQuantity: number }>();
 
-        filteredCards.forEach(card => {
-            if (cardMap.has(card.name)) {
-                const existing = cardMap.get(card.name)!;
-                existing.totalQuantity += card.quantity;
-            } else {
-                cardMap.set(card.name, { ...card, totalQuantity: card.quantity });
-            }
-        });
-
-        return Array.from(cardMap.values());
-    }, [filteredCards]);
 
     const totalCards = collection.reduce((sum, card) => sum + card.quantity, 0);
     const totalUnique = new Set(collection.map(c => c.name)).size;
@@ -375,12 +421,12 @@ export default function CollectionPage() {
                             <div className="flex items-center gap-2 text-slate-400">
                                 <Package className="w-5 h-5" />
                                 <span className="text-sm">
-                                    Showing {uniqueCards.length} unique cards
+                                    Showing {filteredCards.length} cards
                                 </span>
                             </div>
                         </div>
 
-                        {uniqueCards.length === 0 ? (
+                        {filteredCards.length === 0 ? (
                             <div className="text-center py-12">
                                 <div className="text-slate-600 mb-2">
                                     <Package className="w-16 h-16 mx-auto mb-4" />
@@ -390,13 +436,14 @@ export default function CollectionPage() {
                             </div>
                         ) : (
                             <CardGrid
-                                cards={uniqueCards}
+                                cards={filteredCards}
                                 onCardClick={(card) => {
                                     setSelectedCard(card);
                                     setIsModalOpen(true);
                                 }}
                                 actionLabel="view"
                                 currency={currency}
+                                availabilityMap={availabilityMap}
                             />
                         )}
                     </div>

@@ -1,7 +1,7 @@
 'use client';
 
-import { CollectionCard } from '@/lib/types';
-import { Plus, Minus } from 'lucide-react';
+import { CollectionCard, CardAvailability } from '@/lib/types';
+import { Plus, Minus, AlertTriangle } from 'lucide-react';
 
 interface CardGridProps {
     cards: CollectionCard[];
@@ -10,9 +10,10 @@ interface CardGridProps {
     onCardClick?: (card: CollectionCard) => void;
     actionLabel?: 'add' | 'remove' | 'view';
     currency?: 'usd' | 'eur' | 'tix' | 'cad';
+    availabilityMap?: Record<string, CardAvailability>;
 }
 
-export function CardGrid({ cards, onAdd, onRemove, onCardClick, actionLabel = 'add', currency }: CardGridProps) {
+export function CardGrid({ cards, onAdd, onRemove, onCardClick, actionLabel = 'add', currency, availabilityMap }: CardGridProps) {
     if (cards.length === 0) {
         return (
             <div className="text-center py-12 text-slate-500 border-2 border-dashed border-slate-800 rounded-xl">
@@ -103,9 +104,16 @@ export function CardGrid({ cards, onAdd, onRemove, onCardClick, actionLabel = 'a
 
                         {/* Info Footer */}
                         <div className="p-3 bg-slate-800 border-t border-slate-700">
-                            <h3 className="font-medium text-slate-200 truncate text-sm" title={card.name}>
-                                {card.name}
-                            </h3>
+                            <div className="flex justify-between items-start gap-2">
+                                <h3 className="font-medium text-slate-200 truncate text-sm flex-1" title={card.name}>
+                                    {card.name}
+                                </h3>
+                                {availabilityMap && availabilityMap[card.name] && availabilityMap[card.name].available <= 0 && (
+                                    <span title="No copies available in collection (already used in other decks)">
+                                        <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0" />
+                                    </span>
+                                )}
+                            </div>
                             <div className="flex justify-between items-center mt-1 text-xs text-slate-400">
                                 <span>{card.details?.type_line?.split('—')[0].trim()}</span>
                                 <div className="flex items-center gap-2">

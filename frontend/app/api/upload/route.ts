@@ -77,7 +77,9 @@ export async function POST(req: NextRequest) {
 
         const rowsToFetch = rawCollection.filter(c => {
             if (!c.scryfallId) return true; // Need to resolve set/number
-            return !cachedCards.some(cached => cached.id === c.scryfallId); // Not in cache
+            const cached = cachedCards.find(cc => cc.id === c.scryfallId);
+            // Re-fetch if not in cache OR if prices are missing/empty
+            return !cached || !cached.prices || Object.keys(cached.prices).length === 0;
         });
 
         if (rowsToFetch.length > 0) {
@@ -101,6 +103,11 @@ export async function POST(req: NextRequest) {
                     image_url: card.image_uris?.normal || card.card_faces?.[0]?.image_uris?.normal || '',
                     mana_cost: card.mana_cost || card.card_faces?.[0]?.mana_cost || '',
                     cmc: card.cmc,
+                    set: card.set,
+                    set_name: card.set_name,
+                    rarity: card.rarity,
+                    keywords: card.keywords || [],
+                    prices: card.prices || { usd: null, eur: null, tix: null, usd_foil: null, eur_foil: null },
                     last_updated: new Date().toISOString()
                 }));
                 // Dedup cache entries
