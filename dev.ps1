@@ -7,7 +7,7 @@ Write-Host "`n[INFO] Commander Deck Builder - Starting Development Environment" 
 Write-Host "-----------------------------------------------------------`n"
 
 # Check if we're in the right directory
-if (-not (Test-Path "frontend")) {
+if (-not (Test-Path "app")) {
     Write-Host "[ERROR] Please run this script from the project root directory" -ForegroundColor Red
     exit 1
 }
@@ -28,38 +28,34 @@ function Stop-ProcessOnPort {
     }
 }
 
-# Check and clear ports
-Write-Host "Checking ports..."
+# Check and clear port
+Write-Host "Checking port 3000..."
 Stop-ProcessOnPort 3000
-Stop-ProcessOnPort 3001
 Write-Host ""
 
 # Clean stale cache (common issue on OneDrive/Windows)
-if (Test-Path "frontend\.next") {
+if (Test-Path ".next") {
     Write-Host "[INFO] Cleaning build cache..." -ForegroundColor Gray
-    Remove-Item -Path "frontend\.next" -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -Path ".next" -Recurse -Force -ErrorAction SilentlyContinue
 }
 
-# Start frontend
-Write-Host "[INFO] Starting Frontend (port 3000)..." -ForegroundColor Magenta
-Set-Location frontend
-
+# Install dependencies if needed
 if (-not (Test-Path "node_modules")) {
-    Write-Host "[INFO] Installing frontend dependencies..." -ForegroundColor Cyan
+    Write-Host "[INFO] Installing dependencies..." -ForegroundColor Cyan
     npm install
 }
 
-# Start the dev server and redirect logs
-# Using Start-Process for better background management on Windows
+# Start Next.js dev server
+Write-Host "[INFO] Starting Next.js (port 3000)..." -ForegroundColor Magenta
+
 $job = Start-Job -ScriptBlock {
     param($path)
     Set-Location $path
     $env:NEXT_TELEMETRY_DISABLED = "1"
-    npm run dev > "..\\frontend.log" 2>&1
+    npm run dev > "frontend.log" 2>&1
 } -ArgumentList $PWD.Path
 
-Write-Host "[SUCCESS] Frontend started" -ForegroundColor Green
-Set-Location ..
+Write-Host "[SUCCESS] Next.js started" -ForegroundColor Green
 
 Write-Host "`n-----------------------------------------------------------"
 Write-Host "[DONE] Commander Deck Builder is running!" -ForegroundColor Cyan
@@ -78,13 +74,13 @@ try {
     }
 }
 finally {
-    Write-Host "`n[INFO] Stopping services..." -ForegroundColor Yellow
+    Write-Host "`n[INFO] Stopping Next.js..." -ForegroundColor Yellow
     if ($job) {
         Stop-Job $job -ErrorAction SilentlyContinue
         Remove-Job $job -ErrorAction SilentlyContinue
     }
     
-    # Final cleanup of any stray node processes
+    # Final cleanup
     $processes = Get-NetTCPConnection -LocalPort 3000 -ErrorAction SilentlyContinue
     if ($processes) {
         foreach ($p in $processes) {
@@ -92,6 +88,6 @@ finally {
         }
     }
     
-    Write-Host "[INFO] Servers stopped" -ForegroundColor Cyan
+    Write-Host "[INFO] Server stopped." -ForegroundColor Cyan
     exit 0
 }
