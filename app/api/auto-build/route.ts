@@ -111,6 +111,65 @@ export async function POST(req: NextRequest) {
         const cardNames: string[] = [];
         const suggestedDetails: ScryfallCard[] = [];
 
+        // Global counters
+        let landCount = 0;
+        let nonLandCount = 0;
+        let creatureCount = 0;
+        let auraCount = 0;
+        let equipCount = 0;
+
+        const CREATURE_LIMIT = (synergies.creatureTypes.length > 0) ? 40 : 32;
+
+        /**
+         * Centralized helper to add a card to the deck while respecting limits and preventing duplicates.
+         * Returns true if the card was successfully added.
+         */
+        function tryAddCard(card: ScryfallCard | CollectionCard, isScryfallFetch = false) {
+            const details = 'details' in card ? card.details : card;
+            if (!details) return false;
+
+            const name = details.name;
+            const typeLine = details.type_line || "";
+            const isLand = typeLine.includes('Land');
+            const isBasic = typeLine.includes('Basic Land');
+
+            // 1. Prevent adding commanders to the main deck
+            if (allCommanderNames.some(cn => cn.toLowerCase() === name.toLowerCase())) {
+                return false;
+            }
+
+            // 2. Prevent duplicates (except basic lands which are handled later or added here)
+            if (!isBasic && cardNames.includes(name)) {
+                return false;
+            }
+
+            // 3. Respect limits
+            if (!isLand && nonLandCount >= MAX_NON_LANDS) return false;
+            if (!isLand && typeLine.includes('Creature') && creatureCount >= CREATURE_LIMIT) return false;
+            if (isLand && landCount >= TARGET_LANDS) return false;
+
+            // 4. Parasitic Filter (Disqualification)
+            const parasiticCards = { 'umbra mystic': 'Aura', 'siona, captain': 'Aura', 'puresteel paladin': 'Equipment' };
+            const cLow = name.toLowerCase();
+            if (parasiticCards[cLow as keyof typeof parasiticCards] === 'Aura' && auraCount < 6) return false;
+            if (parasiticCards[cLow as keyof typeof parasiticCards] === 'Equipment' && equipCount < 6) return false;
+
+            // 5. Success - Update state
+            cardNames.push(name);
+            if (isScryfallFetch) suggestedDetails.push(details as ScryfallCard);
+
+            if (isLand) {
+                landCount++;
+            } else {
+                nonLandCount++;
+                if (typeLine.includes('Creature')) creatureCount++;
+                if (typeLine.includes('Aura')) auraCount++;
+                if (typeLine.includes('Equipment')) equipCount++;
+            }
+
+            return true;
+        }
+
         function isVanilla(details: any) {
             if (!details || !details.type_line?.includes('Creature')) return false;
             // A card is "vanilla" if it has no oracle text after removing reminder text
@@ -210,9 +269,14 @@ export async function POST(req: NextRequest) {
             const lowerName = (cardObj.name || "").toLowerCase();
             const type = cardObj.type_line || "";
             const cmc = cardObj.cmc ?? 0;
+
+            const isLand = type.includes('Land');
+            if (isLand) return true; // Always allow lands to be considered for addition
+
             const blacklist = ['mystic skull', 'breaching dragonstorm', 'kill shot', 'fountainport bell', 'world map', 'item shopkeep', 'town greeter', 'zulaport duelist', 'beloved chaplain', 'borderland ranger', 'jaddi offshoot', 'champion of the flame', 'wojek bodyguard', 'dakra mystic', 'tithe taker'];
             if (blacklist.some(b => lowerName.includes(b))) return false;
             if (cmc >= 5 && type.includes('Creature') && !/whenever|when|at the beginning|flying|trample|ward|lifelink|deathtouch|menace|vigilance|reach|defender/i.test(text)) return false;
+
             if (type.includes('Creature')) {
                 const isHighlySynergistic = isSynergyCard({ details: cardObj } as any, synergies);
                 if (cmc <= 2 && !isHighlySynergistic && !/when .* enters|draw|add|ramp/i.test(text) && text.length < 50) return false;
@@ -225,17 +289,16 @@ export async function POST(req: NextRequest) {
                     }
                 }
             }
-            if (synergies.primaryStrategy && cardNames.length > TARGET_NON_LAND * 0.6 && !isSynergyCard({ details: cardObj } as any, { ...synergies, strategies: [synergies.primaryStrategy] }) && !/when .* enters|whenever|draw|destroy|exile|add|ramp/i.test(text)) return false;
 
-            // Prevent creature bloat by checking current count
-            const currentCreatures = cardNames.filter(n => {
-                const c = collection.find((cc: any) => cc.name === n);
-                return c?.details?.type_line?.includes('Creature');
-            }).length;
+            if (synergies.primaryStrategy && !isSynergyCard({ details: cardObj } as any, { ...synergies, strategies: [synergies.primaryStrategy] }) && !/when .* enters|whenever|draw|destroy|exile|add|ramp/i.test(text)) {
+                // If it's not synergistic or a staple, be more critical as the deck fills
+                if (cardNames.length > TARGET_NON_LAND * 0.6) return false;
+            }
 
             if (synergies.primaryStrategy === 'VanillaMatters' && type.includes('Creature') && !isVanilla(cardObj) && !isRamp(cardObj) && !isDraw(cardObj) && !isRemoval(cardObj)) return false;
 
-            if (currentCreatures > 35 && type.includes('Creature') && !/when .* enters|whenever|draw|destroy|exile|add|ramp/i.test(text) && !isFinisher(cardObj) && !isSynergyCard({ details: cardObj } as any, synergies)) return false;
+            if (creatureCount > 35 && type.includes('Creature') && !/when .* enters|whenever|draw|destroy|exile|add|ramp/i.test(text) && !isFinisher(cardObj) && !isSynergyCard({ details: cardObj } as any, synergies)) return false;
+
             const colorMap: Record<string, string> = { 'White': 'W', 'Blue': 'U', 'Black': 'B', 'Red': 'R', 'Green': 'G' };
             for (const [colorName, colorCode] of Object.entries(colorMap)) {
                 if (!commanderColors.includes(colorCode) && new RegExp(`\\b${colorName}\\b`, 'i').test(text) && !/(protection from|destroy|exile|opponent|choose a color|any color|landwalk)/i.test(text)) return false;
@@ -249,16 +312,6 @@ export async function POST(req: NextRequest) {
             return isCardRelevant(card.details);
         });
         const uniqueEligible = Array.from(new Map(eligible.map((c: CollectionCard) => [c.name, c])).values()) as CollectionCard[];
-
-        // Initialize payload counts
-        let auraCount = 0;
-        let equipCount = 0;
-
-        // Deck composition limits
-        let landCount = 0;
-        let nonLandCount = 0;
-        let creatureCount = 0;
-        const CREATURE_LIMIT = (synergies.creatureTypes.length > 0) ? 40 : 32;
 
         function addUniqueCards(candidates: any[], maxToAdd: number) {
             const sorted = [...candidates].sort((a, b) => {
@@ -278,13 +331,6 @@ export async function POST(req: NextRequest) {
                     if (isVanilla(b.details)) bGrav += 10;
                 }
 
-                // Check for parasitic support cards (require a minimum count of specific types)
-                const parasiticCards = { 'umbra mystic': 'Aura', 'siona, captain': 'Aura', 'puresteel paladin': 'Equipment' };
-                const aLow = a.name.toLowerCase();
-                const bLow = b.name.toLowerCase();
-                if (parasiticCards[aLow as keyof typeof parasiticCards] === 'Aura' && auraCount < 6) return 1; // Put b first
-                if (parasiticCards[bLow as keyof typeof parasiticCards] === 'Aura' && auraCount < 6) return -1; // Put a first
-
                 // Weight tribal "engines" (cards that trigger on tribe members) higher
                 const engineKeywords = /whenever|trigger|additional|top of your library/i;
                 if ((synergies.creatureTypes || []).some(t => a.details?.type_line?.includes(t)) && engineKeywords.test(a.details?.oracle_text || "")) aGrav += 5;
@@ -299,27 +345,8 @@ export async function POST(req: NextRequest) {
 
             let added = 0;
             for (const card of sorted) {
-                const type = card?.details?.type_line || "";
-                const isLand = type.includes('Land');
-
-                if (!isLand && nonLandCount >= MAX_NON_LANDS) continue;
-                if (!isLand && type.includes('Creature') && creatureCount >= CREATURE_LIMIT) continue;
-                if (isLand && landCount >= TARGET_LANDS) continue;
                 if (added >= maxToAdd) break;
-
-                // v12: Hardened Parasitic Filter (Disqualification)
-                const parasiticCards = { 'umbra mystic': 'Aura', 'siona, captain': 'Aura', 'puresteel paladin': 'Equipment' };
-                const cLow = card.name.toLowerCase();
-                if (parasiticCards[cLow as keyof typeof parasiticCards] === 'Aura' && auraCount < 6) continue;
-                if (parasiticCards[cLow as keyof typeof parasiticCards] === 'Equipment' && equipCount < 6) continue;
-
-                if (!cardNames.includes(card.name)) {
-                    cardNames.push(card.name);
-                    if (isLand) landCount++; else { nonLandCount++; if (type.includes('Creature')) creatureCount++; }
-                    if (type.includes('Aura')) auraCount++;
-                    if (type.includes('Equipment')) equipCount++;
-                    added++;
-                }
+                if (tryAddCard(card)) added++;
             }
             return added;
         }
@@ -337,12 +364,8 @@ export async function POST(req: NextRequest) {
                     const vanData = await vanResp.json();
                     let vanAdded = 0;
                     for (const v of vanData.data) {
-                        if (nonLandCount < MAX_NON_LANDS && !cardNames.includes(v.name) && vanAdded < 8) {
-                            cardNames.push(v.name);
-                            suggestedDetails.push(v);
-                            nonLandCount++;
-                            vanAdded++;
-                        }
+                        if (vanAdded >= 8) break;
+                        if (tryAddCard(v, true)) vanAdded++;
                     }
                 }
             } catch { }
@@ -355,11 +378,7 @@ export async function POST(req: NextRequest) {
                 const chocoResp = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent("name:\"Traveling Chocobo\"")}`);
                 if (chocoResp.ok) {
                     const cData = await chocoResp.json();
-                    if (cData.data[0]) {
-                        cardNames.push(cData.data[0].name);
-                        suggestedDetails.push(cData.data[0]);
-                        nonLandCount++;
-                    }
+                    if (cData.data[0]) tryAddCard(cData.data[0], true);
                 }
             } catch { }
         }
@@ -378,12 +397,8 @@ export async function POST(req: NextRequest) {
                     const sigData = await sigResp.json();
                     let sigAdded = 0;
                     for (const l of sigData.data) {
-                        if (nonLandCount < MAX_NON_LANDS && !cardNames.includes(l.name) && sigAdded < 5) {
-                            cardNames.push(l.name);
-                            suggestedDetails.push(l);
-                            nonLandCount++;
-                            sigAdded++;
-                        }
+                        if (sigAdded >= 5) break;
+                        if (tryAddCard(l, true)) sigAdded++;
                     }
                 }
             } catch (e) { console.error("Failed to fetch signature staples", e); }
@@ -399,11 +414,7 @@ export async function POST(req: NextRequest) {
                 if (sacResp.ok) {
                     const sacData = await sacResp.json();
                     for (const s of sacData.data) {
-                        if (nonLandCount < MAX_NON_LANDS && !cardNames.includes(s.name) && (s.type_line.includes('Land') ? landCount < TARGET_LANDS : creatureCount < CREATURE_LIMIT)) {
-                            cardNames.push(s.name);
-                            suggestedDetails.push(s);
-                            if (s.type_line.includes('Land')) landCount++; else { nonLandCount++; if (s.type_line.includes('Creature')) creatureCount++; }
-                        }
+                        tryAddCard(s, true);
                     }
                 }
             } catch { }
@@ -420,12 +431,8 @@ export async function POST(req: NextRequest) {
                     const landData = await landResp.json();
                     let landAdded = 0;
                     for (const l of landData.data) {
-                        if (landCount < TARGET_LANDS && !cardNames.includes(l.name) && landAdded < 5) {
-                            cardNames.push(l.name);
-                            suggestedDetails.push(l);
-                            landCount++;
-                            landAdded++;
-                        }
+                        if (landAdded >= 5) break;
+                        if (tryAddCard(l, true)) landAdded++;
                     }
                 }
             } catch (e) { console.error("Failed to fetch synergy lands", e); }
@@ -442,8 +449,10 @@ export async function POST(req: NextRequest) {
                 if (rr.ok) {
                     let rampAdded = 0;
                     for (const r of (await rr.json()).data) {
-                        if (nonLandCount < MAX_NON_LANDS && !cardNames.includes(r.name) && rampAdded < 5) {
-                            cardNames.push(r.name); suggestedDetails.push(r); nonLandCount++; rampCount++; rampAdded++;
+                        if (rampAdded >= 5) break;
+                        if (tryAddCard(r, true)) {
+                            rampAdded++;
+                            rampCount++;
                         }
                     }
                 }
@@ -465,17 +474,19 @@ export async function POST(req: NextRequest) {
                     const interData = await interResp.json();
                     let interAdded = 0;
                     for (const r of interData.data) {
-                        if (nonLandCount < MAX_NON_LANDS && !cardNames.includes(r.name) && interAdded < 6) {
-                            cardNames.push(r.name); suggestedDetails.push(r); nonLandCount++; removalCount++; interAdded++;
+                        if (interAdded >= 6) break;
+                        if (tryAddCard(r, true)) {
+                            interAdded++;
+                            removalCount++;
                         }
                     }
                 }
             } catch { }
         }
 
-        // SYNERGY PHASE (Permanents and Engine pieces)
-        // Prioritize non-creature synergy pieces (Artifacts/Enchantments) to set payloads
+        // Synergy Pieces (Artifacts/Enchantments)
         addUniqueCards(uniqueEligible.filter(c => isSynergyCard(c, synergies) && (c.details?.type_line?.includes('Artifact') || c.details?.type_line?.includes('Enchantment'))), 15);
+        // General Synergy
         addUniqueCards(uniqueEligible.filter(c => isSynergyCard(c, synergies)), 20);
 
         const addedFins = addUniqueCards(uniqueEligible.filter(c => !cardNames.includes(c.name) && isFinisher(c.details)), 5);
@@ -484,41 +495,49 @@ export async function POST(req: NextRequest) {
                 const fr = await fetch(`https://api.scryfall.com/cards/search?q=${encodeURIComponent(`${colorQuery} (o:"each opponent loses" OR o:"whenever you create a token" OR o:"whenever a creature you control dies") legal:commander usd<5 order:edhrec limit:5`)}`);
                 if (fr.ok) {
                     for (const f of (await fr.json()).data) {
-                        if (nonLandCount < MAX_NON_LANDS && !cardNames.includes(f.name)) {
-                            cardNames.push(f.name); suggestedDetails.push(f); nonLandCount++;
-                        }
+                        tryAddCard(f, true);
                     }
                 }
             } catch { }
         }
 
-        // Fill remaining Non-Lands (Priority: Non-Creatures first to combat bloat)
-        addUniqueCards(uniqueEligible.filter(c => !cardNames.includes(c.name) && !c.details?.type_line?.includes('Creature')), MAX_NON_LANDS);
-        addUniqueCards(uniqueEligible.filter(c => !cardNames.includes(c.name) && isCreature(c.details?.type_line || '')), MAX_NON_LANDS);
-        addUniqueCards(uniqueEligible.filter(c => !cardNames.includes(c.name)), MAX_NON_LANDS);
+        // Fill remaining Non-Lands (Explicitly exclude lands here to preserve slots for basics)
+        const isNotLand = (c: CollectionCard) => !c.details?.type_line?.includes('Land');
+
+        addUniqueCards(uniqueEligible.filter(c => !cardNames.includes(c.name) && isNotLand(c) && !c.details?.type_line?.includes('Creature')), MAX_NON_LANDS);
+        addUniqueCards(uniqueEligible.filter(c => !cardNames.includes(c.name) && isNotLand(c) && isCreature(c.details?.type_line || '')), MAX_NON_LANDS);
+        addUniqueCards(uniqueEligible.filter(c => !cardNames.includes(c.name) && isNotLand(c)), MAX_NON_LANDS);
 
         const basicMap: Record<string, string> = { W: 'Plains', U: 'Island', B: 'Swamp', R: 'Mountain', G: 'Forest' };
 
+        // Dedicated Land Phase: Only add synergy lands or a limited number of utility lands
         uniqueEligible.filter(c => c.details?.type_line?.includes('Land') && isSynergyCard(c, synergies)).forEach(c => {
-            if (landCount < TARGET_LANDS && !cardNames.includes(c.name)) { cardNames.push(c.name); landCount++; }
+            tryAddCard(c);
         });
+
         const utilityLands = uniqueEligible.filter(c => c.details?.type_line?.includes('Land') && !c.details?.type_line?.includes('Basic') && !cardNames.includes(c.name));
+        // Limit utility lands to 50% of the land target to ensure room for basics
         while (landCount < Math.floor(TARGET_LANDS * 0.5) && utilityLands.length > 0) {
             const l = utilityLands.shift();
-            if (l && !cardNames.includes(l.name)) { cardNames.push(l.name); landCount++; }
+            if (l) tryAddCard(l);
         }
 
-        // Fill remaining slots to exactly 100 with basics, even if non-lands weren't full
+        // Final Phase: Fill remaining slots exactly to 100 with basics
         const totalTarget = 100 - allCommanderNames.length;
         const remainingToFill = totalTarget - cardNames.length;
+
         if (remainingToFill > 0) {
-            const perColor = Math.floor(remainingToFill / commanderColors.length);
-            const extra = remainingToFill % commanderColors.length;
-            commanderColors.forEach((color, i) => {
-                const landName = basicMap[color];
-                if (landName) {
-                    let count = perColor + (i < extra ? 1 : 0);
-                    for (let x = 0; x < count; x++) cardNames.push(landName);
+            console.log(`[Auto-Build] Filling remaining ${remainingToFill} slots with basic lands`);
+            const colors = commanderColors.length > 0 ? commanderColors : ['W', 'U', 'B', 'R', 'G', 'C'];
+            const actualColors = colors.filter(c => basicMap[c] || c === 'C');
+            const perColor = Math.floor(remainingToFill / actualColors.length);
+            const extra = remainingToFill % actualColors.length;
+
+            actualColors.forEach((color, i) => {
+                const landName = basicMap[color] || 'Wastes';
+                let count = perColor + (i < extra ? 1 : 0);
+                for (let x = 0; x < count; x++) {
+                    cardNames.push(landName);
                 }
             });
         }
