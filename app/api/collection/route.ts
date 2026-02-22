@@ -10,15 +10,18 @@ export async function GET() {
 
         // Dev unblocking
         if (!userEmail && process.env.NODE_ENV === 'development') {
+            console.log('[Collection] No session found, using guest@local for development');
             userEmail = 'guest@local';
         }
 
         if (!userEmail) {
+            console.log('[Collection] No user email found and not in dev guest mode. Returning empty.');
             return NextResponse.json({ collection: [] });
         }
 
+        console.log(`[Collection] Fetching data for user: ${userEmail}`);
+
         // Fetch collection for this user with joined card metadata
-        // Note: Supabase often caps responses at 1000 rows, so we paginate to be safe.
         let allData: any[] = [];
         let from = 0;
         const PAGE_SIZE = 1000;

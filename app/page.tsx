@@ -11,13 +11,15 @@ import { API_BASE_URL } from '@/lib/api';
 
 export default function Home() {
   const router = useRouter();
-  const { data: session } = useSession();
+  const { data: session, status } = useSession();
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hasCollection, setHasCollection] = useState(false);
 
   // Redirect if collection exists and user is logged in
   useEffect(() => {
+    if (status === 'loading') return;
+
     const checkCollection = async () => {
       try {
         const res = await fetch(`${API_BASE_URL}/collection`);
@@ -35,7 +37,7 @@ export default function Home() {
       }
     };
     checkCollection();
-  }, [session, router]);
+  }, [session, status, router]);
 
   const handleUpload = async (file: File) => {
     setIsLoading(true);

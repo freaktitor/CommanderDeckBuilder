@@ -10,6 +10,7 @@ import { API_BASE_URL } from '@/lib/api';
 import { TopBar } from '@/components/TopBar';
 import { AdvancedFilters } from '@/components/AdvancedFilters';
 import { CardDetailModal } from '@/components/CardDetailModal';
+import { useSession } from 'next-auth/react';
 
 export default function CollectionPage() {
     const router = useRouter();
@@ -26,6 +27,7 @@ export default function CollectionPage() {
     const [currency, setCurrency] = useState<'usd' | 'eur' | 'tix' | 'cad'>('usd');
     const [savedDecks, setSavedDecks] = useState<Deck[]>([]);
     const [isInitialized, setIsInitialized] = useState(false);
+    const { data: session, status } = useSession();
 
     useEffect(() => {
         const fetchDecks = async () => {
@@ -95,14 +97,18 @@ export default function CollectionPage() {
     }, [sortBy, currency, isInitialized]);
 
     useEffect(() => {
+        if (status === 'loading') return;
+
         const fetchCollection = async () => {
             try {
                 const res = await fetch(`${API_BASE_URL}/collection`);
                 if (!res.ok) throw new Error('Failed to fetch collection');
                 const data = await res.json();
+
                 if (data.collection && data.collection.length > 0) {
                     setCollection(data.collection);
-                } else {
+                } else if (status === 'authenticated') {
+                    // Only redirect if we are sure there's no collection for this logged-in user
                     router.push('/');
                 }
             } catch (e) {
@@ -114,7 +120,7 @@ export default function CollectionPage() {
         };
 
         fetchCollection();
-    }, [router]);
+    }, [router, status]);
 
     // Get unique card types from collection
     const cardTypes = useMemo(() => {
