@@ -16,7 +16,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [hasCollection, setHasCollection] = useState(false);
 
-  // Check if collection exists and redirect if logged in
+  // Redirect if collection exists and user is logged in
   useEffect(() => {
     const checkCollection = async () => {
       try {
@@ -26,7 +26,6 @@ export default function Home() {
           const exists = data.collection && data.collection.length > 0;
           setHasCollection(exists);
 
-          // Auto-redirect if logged in and has data
           if (session && exists) {
             router.push('/collection');
           }
@@ -90,7 +89,7 @@ export default function Home() {
         </div>
 
         <div className="bg-slate-900/50 backdrop-blur-xl border border-slate-800 rounded-2xl p-8 shadow-2xl space-y-8">
-          {/* Auth Section */}
+          {/* Auth */}
           <div className="text-center space-y-4">
             {session ? (
               <div className="flex flex-col items-center space-y-6">

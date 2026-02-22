@@ -27,7 +27,6 @@ export default function CollectionPage() {
     const [savedDecks, setSavedDecks] = useState<Deck[]>([]);
     const [isInitialized, setIsInitialized] = useState(false);
 
-    // Load saved decks for availability
     useEffect(() => {
         const fetchDecks = async () => {
             try {
@@ -79,7 +78,6 @@ export default function CollectionPage() {
         return map;
     }, [collection, savedDecks]);
 
-    // Initialize from localStorage
     useEffect(() => {
         const savedSort = localStorage.getItem('collection_sortBy');
         const savedCurrency = localStorage.getItem('collection_currency');
@@ -89,7 +87,6 @@ export default function CollectionPage() {
         setIsInitialized(true);
     }, []);
 
-    // Save to localStorage
     useEffect(() => {
         if (isInitialized) {
             localStorage.setItem('collection_sortBy', sortBy);
@@ -97,7 +94,6 @@ export default function CollectionPage() {
         }
     }, [sortBy, currency, isInitialized]);
 
-    // Load collection on mount
     useEffect(() => {
         const fetchCollection = async () => {
             try {
@@ -138,7 +134,6 @@ export default function CollectionPage() {
         return Array.from(types).sort();
     }, [collection]);
 
-    // Filter cards
     const filteredCards = useMemo(() => {
         let filtered = [...collection];
 

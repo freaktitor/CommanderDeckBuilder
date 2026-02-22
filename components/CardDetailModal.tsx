@@ -12,7 +12,6 @@ interface CardDetailModalProps {
 }
 
 export function CardDetailModal({ card, isOpen, onClose }: CardDetailModalProps) {
-    // Close on ESC key
     useEffect(() => {
         const handleEsc = (e: KeyboardEvent) => {
             if (e.key === 'Escape') onClose();
@@ -32,7 +31,7 @@ export function CardDetailModal({ card, isOpen, onClose }: CardDetailModalProps)
     const details = card.details;
     const imageUrl = details.image_uris?.large || details.image_uris?.normal || details.card_faces?.[0]?.image_uris?.large;
 
-    // Format EDHREC URL (card names need to be lowercase and hyphenated)
+    // Format EDHREC URL
     const edhrecUrl = `https://edhrec.com/cards/${details.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}`;
 
     // Helper to parse text with symbols
@@ -46,7 +45,6 @@ export function CardDetailModal({ card, isOpen, onClose }: CardDetailModalProps)
         });
     };
 
-    // Get oracle text (handle double-faced cards)
     const getOracleText = () => {
         if (details.oracle_text) return renderTextWithSymbols(details.oracle_text);
         if (details.card_faces) {

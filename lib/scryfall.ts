@@ -13,13 +13,13 @@ export async function fetchCardCollection(identifiers: any[]): Promise<ScryfallC
 
     for (let i = 0; i < chunks.length; i++) {
         const chunk = chunks[i];
-        try {
-            // Add delay to be polite to Scryfall API (50-100ms recommended)
-            if (i > 0) {
-                await new Promise(resolve => setTimeout(resolve, 100));
-            }
+        // Rate limit Scryfall API
+        if (i > 0) {
+            await new Promise(resolve => setTimeout(resolve, 100));
+        }
 
-            console.log(`[Scryfall] Fetching chunk ${i + 1}/${chunks.length} (${chunk.length} cards)`);
+        console.log(`[Scryfall] Fetching chunk ${i + 1}/${chunks.length} (${chunk.length} cards)`);
+        try {
             const response = await fetch(`${SCRYFALL_API_BASE}/cards/collection`, {
                 method: 'POST',
                 headers: {

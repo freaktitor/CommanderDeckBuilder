@@ -10,14 +10,10 @@ interface ManaSymbolProps {
  * Symbol format examples: W, U, B, R, G, C, 1, 2, X, W/U, 2/W, etc.
  */
 export function ManaSymbol({ symbol, size = 20 }: ManaSymbolProps) {
-    // Scryfall symbology CDN pattern
-    // https://svgs.scryfall.io/card-symbols/{SYMBOL}.svg
-    // Remove curly braces and convert to uppercase
-    // For hybrid symbols like {W/U}, convert to WU (remove the slash)
+    // Scryfall symbol normalization (e.g., {W/U} -> WU)
     const normalizedSymbol = symbol
         .replace(/[{}]/g, '') // Remove curly braces
-        .replace(/\//g, '')    // Remove slashes for hybrid symbols
-        .toUpperCase();        // Convert to uppercase
+        .replace(/\//g, ''); // Remove slashes for hybrid symbols
 
     const svgUrl = `https://svgs.scryfall.io/card-symbols/${normalizedSymbol}.svg`;
 
@@ -38,8 +34,7 @@ interface ManaCostProps {
 }
 
 /**
- * Parses and renders a full mana cost string as MTG mana symbols
- * Example input: "{2}{W}{U}{B}"
+ * Parses and renders a full mana cost string (e.g. "{2}{W}{U}")
  */
 export function ManaCost({ manaCost, size = 20 }: ManaCostProps) {
     if (!manaCost) return null;

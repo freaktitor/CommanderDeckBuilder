@@ -44,12 +44,10 @@ function BuilderContent() {
         }
     };
 
-    // Load saved decks to track availability
     useEffect(() => {
         fetchDecks();
     }, []);
 
-    // Calculate Availability Map
     const availabilityMap = useMemo(() => {
         const map: Record<string, CardAvailability> = {};
 
@@ -165,7 +163,6 @@ function BuilderContent() {
     };
 
     const handleSaveDeck = async () => {
-        console.log('[Save] handleSaveDeck initiated. isUpdate:', !!deckId, 'deckId:', deckId);
 
         if (!session && process.env.NODE_ENV !== 'development') {
             showAlert('Sign In Required', 'Please sign in to save your deck!', 'error');
@@ -255,7 +252,6 @@ function BuilderContent() {
         );
     };
 
-    // Load collection on mount
     useEffect(() => {
         const fetchCollection = async () => {
             try {
@@ -318,7 +314,6 @@ function BuilderContent() {
         }
     }, [deckId, collection]);
 
-    // Update deck colors when commanders change
     useEffect(() => {
         const commanders = deck.commanders || [];
         if (commanders.length > 0) {
@@ -331,7 +326,6 @@ function BuilderContent() {
         }
     }, [deck.commanders]);
 
-    // Filter Logic
     const filteredCards = useMemo(() => {
         let filtered = collection;
 

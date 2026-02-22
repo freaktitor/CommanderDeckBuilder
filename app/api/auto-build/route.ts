@@ -113,7 +113,7 @@ export async function POST(req: NextRequest) {
 
         function isVanilla(details: any) {
             if (!details || !details.type_line?.includes('Creature')) return false;
-            // Clean oracle text of reminder text (parentheses) and trim
+            // A card is "vanilla" if it has no oracle text after removing reminder text
             const text = (details.oracle_text || "").replace(/\(.*\)/g, "").trim();
             return text.length === 0;
         }
@@ -176,10 +176,10 @@ export async function POST(req: NextRequest) {
             const text = (details.oracle_text || "").toLowerCase();
             const typeLine = (details.type_line || "").toLowerCase();
 
-            // v15: Strategic Role Matching
+            // Match cards based on the commander's primary strategy
             if (sObj.primaryStrategy === 'Aristocrats') {
                 if (isSacOutlet(details) || isFodder(details) || isFinisher(details)) return true;
-                if (typeLine.includes('human') && text.includes('create')) return true; // Human fodder for Trynn
+                if (typeLine.includes('human') && text.includes('create')) return true; // Synergy with Human-focused sac outlets
             }
 
             if (sObj.exclusiveTypes.some((t: string) => typeLine.includes(t.toLowerCase()))) return true;
@@ -214,11 +214,10 @@ export async function POST(req: NextRequest) {
             if (blacklist.some(b => lowerName.includes(b))) return false;
             if (cmc >= 5 && type.includes('Creature') && !/whenever|when|at the beginning|flying|trample|ward|lifelink|deathtouch|menace|vigilance|reach|defender/i.test(text)) return false;
             if (type.includes('Creature')) {
-                // v15: Aggressive Filler Filter
                 const isHighlySynergistic = isSynergyCard({ details: cardObj } as any, synergies);
                 if (cmc <= 2 && !isHighlySynergistic && !/when .* enters|draw|add|ramp/i.test(text) && text.length < 50) return false;
 
-                // Disqualify "Combat-Only" creatures in synergy decks
+                // Filter out generic "combat" creatures that don't support the deck's synergy
                 if (!isHighlySynergistic && !isRemoval(cardObj) && !isDraw(cardObj) && !isRamp(cardObj)) {
                     if (/attacks|blocks|double strike|first strike|vigilance|reach|trample|flying|protection from/i.test(text) &&
                         !/whenever you (cast|create|sacrifice)|whenever a creature dies/i.test(text)) {
@@ -228,7 +227,7 @@ export async function POST(req: NextRequest) {
             }
             if (synergies.primaryStrategy && cardNames.length > TARGET_NON_LAND * 0.6 && !isSynergyCard({ details: cardObj } as any, { ...synergies, strategies: [synergies.primaryStrategy] }) && !/when .* enters|whenever|draw|destroy|exile|add|ramp/i.test(text)) return false;
 
-            // Fixed currentCreatures check to avoid blocking builds
+            // Prevent creature bloat by checking current count
             const currentCreatures = cardNames.filter(n => {
                 const c = collection.find((cc: any) => cc.name === n);
                 return c?.details?.type_line?.includes('Creature');
@@ -255,11 +254,11 @@ export async function POST(req: NextRequest) {
         let auraCount = 0;
         let equipCount = 0;
 
-        // v15: Strategic Creature Cap Enforcement
+        // Deck composition limits
         let landCount = 0;
         let nonLandCount = 0;
         let creatureCount = 0;
-        const CREATURE_LIMIT = (synergies.creatureTypes.length > 0) ? 40 : 32; // Tribes get more, synergy decks stay lean
+        const CREATURE_LIMIT = (synergies.creatureTypes.length > 0) ? 40 : 32;
 
         function addUniqueCards(candidates: any[], maxToAdd: number) {
             const sorted = [...candidates].sort((a, b) => {
@@ -274,20 +273,19 @@ export async function POST(req: NextRequest) {
                 aGrav += ((synergies.mechanics || []).filter((m: string) => a.details?.oracle_text?.toLowerCase().includes(m)).length * 0.2);
                 bGrav += ((synergies.mechanics || []).filter((m: string) => b.details?.oracle_text?.toLowerCase().includes(m)).length * 0.2);
 
-                // v13: Vanilla Synergy Boost
                 if (synergies.primaryStrategy === 'VanillaMatters') {
                     if (isVanilla(a.details)) aGrav += 10;
                     if (isVanilla(b.details)) bGrav += 10;
                 }
 
-                // v12: Hardened Parasitic Filter (Disqualification)
+                // Check for parasitic support cards (require a minimum count of specific types)
                 const parasiticCards = { 'umbra mystic': 'Aura', 'siona, captain': 'Aura', 'puresteel paladin': 'Equipment' };
                 const aLow = a.name.toLowerCase();
                 const bLow = b.name.toLowerCase();
                 if (parasiticCards[aLow as keyof typeof parasiticCards] === 'Aura' && auraCount < 6) return 1; // Put b first
                 if (parasiticCards[bLow as keyof typeof parasiticCards] === 'Aura' && auraCount < 6) return -1; // Put a first
 
-                // v12: Tribal Engine Weighting (+5 Gravity for match + trigger)
+                // Weight tribal "engines" (cards that trigger on tribe members) higher
                 const engineKeywords = /whenever|trigger|additional|top of your library/i;
                 if ((synergies.creatureTypes || []).some(t => a.details?.type_line?.includes(t)) && engineKeywords.test(a.details?.oracle_text || "")) aGrav += 5;
                 if ((synergies.creatureTypes || []).some(t => b.details?.type_line?.includes(t)) && engineKeywords.test(b.details?.oracle_text || "")) bGrav += 5;
@@ -369,7 +367,7 @@ export async function POST(req: NextRequest) {
         // Phase 1: High Strategy Staples (Owned only)
         addUniqueCards(uniqueEligible.filter(c => /zulaport|blood artist|cruel celebrant|manufactor|plunderer|sol ring|signet|talisman|arcane signet|fellwar stone/.test(c.name.toLowerCase())), 15);
 
-        // v10.1: Signature Staple Fetching (e.g. Traveling Chocobo)
+        // Fetch signature staples for tribal decks
         if (synergies.creatureTypes.length > 0) {
             console.log("Fetching signature staples for tribes:", synergies.creatureTypes);
             try {
@@ -391,7 +389,7 @@ export async function POST(req: NextRequest) {
             } catch (e) { console.error("Failed to fetch signature staples", e); }
         }
 
-        // v15: Enforce Mandatory Sac Outlets for Aristocrats (Budget Only)
+        // Ensure Aristocrats decks have a core set of sacrifice outlets
         if (synergies.primaryStrategy === 'Aristocrats') {
             const sacOutlets = ['Viscera Seer', 'Carrion Feeder', 'Woe Strider', 'Yahenni, Undying Partisan', 'Skullclamp', 'High Market'];
             console.log("Fetching mandatory sac outlets...");
@@ -411,7 +409,7 @@ export async function POST(req: NextRequest) {
             } catch { }
         }
 
-        // v8: Synergy Land Fetching (e.g. Towns) - These don't count towards Non-Land cap - LIMIT 5
+        // Fetch specialized lands for specific subtypes (e.g. Gates, Deserts)
         if (synergies.landSubtypes.length > 0) {
             console.log("Fetching synergy lands for subtypes:", synergies.landSubtypes);
             try {
